@@ -469,6 +469,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         clean = unquote(self.path.split("?", 1)[0])
 
+        if clean == "/health":
+            result = run_cmd(["/usr/local/bin/sdk-smoke"], timeout=10)
+            self.send_json({
+                "ok": result["ok"],
+                "module_id": "nvr",
+                "module_version": "0.1.0",
+                "sdk": "HCNetSDK V6.1.9.48 Linux64",
+            }, 200 if result["ok"] else 503)
+            return
+
         if clean == "/api/status":
             result = run_cmd(["/usr/local/bin/sdk-smoke"], timeout=10)
             ff = run_cmd(["ffmpeg", "-version"], timeout=5)
