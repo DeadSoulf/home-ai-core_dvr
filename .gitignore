@@ -1,0 +1,7 @@
+data/output/*
+!data/output/.gitkeep
+__pycache__/
+*.py[cod]
+*.log
+*.tar
+*.zip

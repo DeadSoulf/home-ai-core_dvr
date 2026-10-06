@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>HCNetSDK NVR Console</title>
+  <link rel="stylesheet" href="/style.css?v=3">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">HC</div>
+      <div>
+        <strong>NVR Console</strong>
+        <span>HCNetSDK 6.1.9.48</span>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item active" data-page="monitor"><span>◫</span>Живой просмотр</button>
+      <button class="nav-item" data-page="archive"><span>◷</span>Архив</button>
+      <button class="nav-item" data-page="events"><span>⚠</span>События</button>
+      <button class="nav-item" data-page="device"><span>▣</span>Устройство</button>
+      <button class="nav-item" data-page="system"><span>⚙</span>Система</button>
+      <button class="nav-item" data-page="logs"><span>≡</span>Журнал</button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="sdk-state">
+        <span id="sdkDot" class="status-dot warn"></span>
+        <div>
+          <strong id="sdkStateText">Проверка SDK</strong>
+          <small id="sdkSubText">Docker</small>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <div class="page-kicker">Система видеонаблюдения</div>
+        <h1 id="pageTitle">Живой просмотр</h1>
+      </div>
+      <div class="top-actions">
+        <div class="device-pill">
+          <span id="deviceDot" class="status-dot offline"></span>
+          <div>
+            <strong id="deviceStateText">Не подключено</strong>
+            <small id="deviceAddressText">—</small>
+          </div>
+        </div>
+        <button id="quickConnect" class="btn primary">Подключить</button>
+      </div>
+    </header>
+
+    <section class="page active" id="page-monitor">
+      <div class="page-toolbar">
+        <div class="segmented" id="layoutButtons">
+          <button data-layout="1">1</button>
+          <button data-layout="4" class="active">4</button>
+          <button data-layout="9">9</button>
+        </div>
+        <label class="compact-field">Поток
+          <select id="streamType">
+            <option value="1" selected>Дополнительный</option>
+            <option value="0">Основной</option>
+            <option value="2">Третий</option>
+          </select>
+        </label>
+        <div class="toolbar-spacer"></div>
+        <button id="snapshotSelected" class="btn">Снимок</button>
+        <button id="fullscreenSelected" class="btn">На весь экран</button>
+        <button id="stopAllLive" class="btn danger-ghost">Остановить всё</button>
+      </div>
+
+      <div class="monitor-workspace">
+        <aside class="camera-panel panel">
+          <div class="panel-title">
+            <div>
+              <strong>Камеры</strong>
+              <small id="cameraCount">0 каналов</small>
+            </div>
+            <button id="refreshDeviceState" class="icon-btn" title="Обновить">↻</button>
+          </div>
+          <div id="cameraList" class="camera-list">
+            <div class="empty-note">Подключите камеру или NVR</div>
+          </div>
+        </aside>
+
+        <div class="video-area">
+          <div id="videoGrid" class="video-grid grid-4"></div>
+
+          <div class="live-statusbar">
+            <div>
+              <span class="live-badge">LIVE</span>
+              <strong id="selectedCameraName">Канал не выбран</strong>
+            </div>
+            <div class="live-stats">
+              <span id="liveSessionCount">0 потоков</span>
+              <span id="liveClock">--:--:--</span>
+            </div>
+          </div>
+
+          <div class="ptz-strip panel">
+            <div class="ptz-pad-mini">
+              <button data-ptz="up_left">↖</button>
+              <button data-ptz="up">↑</button>
+              <button data-ptz="up_right">↗</button>
+              <button data-ptz="left">←</button>
+              <button class="ptz-center" disabled>PTZ</button>
+              <button data-ptz="right">→</button>
+              <button data-ptz="down_left">↙</button>
+              <button data-ptz="down">↓</button>
+              <button data-ptz="down_right">↘</button>
+            </div>
+            <div class="ptz-tools">
+              <div class="control-row">
+                <span>Скорость</span>
+                <input id="ptzSpeed" type="range" min="1" max="7" value="4">
+                <strong id="ptzSpeedValue">4</strong>
+              </div>
+              <div class="button-row">
+                <button data-ptz="zoom_in">Zoom +</button>
+                <button data-ptz="zoom_out">Zoom −</button>
+                <button data-ptz="focus_near">Фокус +</button>
+                <button data-ptz="focus_far">Фокус −</button>
+                <button data-ptz="iris_open">Iris +</button>
+                <button data-ptz="iris_close">Iris −</button>
+              </div>
+              <div class="preset-line">
+                <input id="presetNumber" type="number" min="1" max="300" value="1">
+                <button id="presetGoto">Вызвать пресет</button>
+                <button id="presetSet">Сохранить пресет</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="event-panel panel">
+          <div class="panel-title">
+            <div>
+              <strong>События</strong>
+              <small id="eventMonitorStatus">мониторинг выключен</small>
+            </div>
+            <button id="toggleEventMonitor" class="icon-btn" title="Включить события">●</button>
+          </div>
+          <div id="eventMiniList" class="event-mini-list">
+            <div class="empty-note">Нет событий</div>
+          </div>
+          <button class="link-button" data-page-link="events">Открыть журнал событий →</button>
+        </aside>
+      </div>
+    </section>
+
+    <section class="page" id="page-archive">
+      <div class="archive-layout">
+        <div class="panel archive-search-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Поиск записей</h2>
+              <p>По каналу и интервалу времени</p>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Канал<select id="archiveChannel"></select></label>
+            <label>Начало<input id="archiveStart" type="datetime-local" step="1"></label>
+            <label>Окончание<input id="archiveEnd" type="datetime-local" step="1"></label>
+            <button id="archiveSearchBtn" class="btn primary">Найти</button>
+          </div>
+        </div>
+
+        <div class="panel archive-player-panel">
+          <div class="archive-player">
+            <video id="archivePlayer" controls playsinline></video>
+            <div id="archivePlayerEmpty" class="video-placeholder">
+              <span>◷</span>
+              <strong>Выберите запись</strong>
+              <small>После подготовки она откроется здесь</small>
+            </div>
+          </div>
+          <div class="archive-now">
+            <strong id="archiveNowTitle">Запись не выбрана</strong>
+            <a id="archiveDownload" class="btn hidden" download>Скачать MP4</a>
+          </div>
+        </div>
+
+        <div class="panel archive-results-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Найденные записи</h2>
+              <p id="archiveResultCount">0 записей</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Начало</th><th>Окончание</th><th>Размер</th><th>Файл</th><th></th></tr></thead>
+              <tbody id="archiveTableBody">
+                <tr><td colspan="5" class="table-empty">Выполните поиск по архиву</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-events">
+      <div class="page-toolbar">
+        <button id="eventsStart" class="btn primary">Включить мониторинг</button>
+        <button id="eventsStop" class="btn">Остановить</button>
+        <button id="alarmTest" class="btn">Проверить alarm channel</button>
+        <div class="toolbar-spacer"></div>
+        <span id="eventsStateBadge" class="badge neutral">Выключено</span>
+      </div>
+      <div class="panel">
+        <div class="section-heading">
+          <div>
+            <h2>События и тревоги</h2>
+            <p>Данные поступают через NET_DVR_SetupAlarmChan_V50</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Время</th><th>Тип</th><th>Канал</th><th>Команда SDK</th></tr></thead>
+            <tbody id="eventTableBody">
+              <tr><td colspan="4" class="table-empty">Событий пока нет</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-device">
+      <div class="device-grid">
+        <div class="panel connection-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Подключение</h2>
+              <p>SDK-порт Hikvision, обычно 8000</p>
+            </div>
+            <span id="connectionBadge" class="badge neutral">Не подключено</span>
+          </div>
+
+          <div class="form-grid">
+            <label>IP-адрес<input id="ip" value="10.18.37.111" autocomplete="off"></label>
+            <label>SDK-порт<input id="port" type="number" value="8000"></label>
+            <label>Пользователь<input id="user" value="admin" autocomplete="username"></label>
+            <label>Пароль
+              <div class="password-box">
+                <input id="password" type="password" autocomplete="current-password">
+                <button id="togglePassword" type="button">Показать</button>
+              </div>
+            </label>
+          </div>
+          <div class="action-row">
+            <button id="connectBtn" class="btn primary">Подключиться</button>
+            <button id="disconnectBtn" class="btn">Отключить интерфейс</button>
+          </div>
+        </div>
+
+        <div class="panel summary-panel">
+          <div class="section-heading"><div><h2>Устройство</h2><p>Сведения из NET_DVR_Login_V40</p></div></div>
+          <div id="deviceSummary" class="metric-grid">
+            <div class="metric"><span>Каналы</span><strong>—</strong></div>
+            <div class="metric"><span>IP-каналы</span><strong>—</strong></div>
+            <div class="metric"><span>Диски</span><strong>—</strong></div>
+            <div class="metric"><span>Тип</span><strong>—</strong></div>
+          </div>
+        </div>
+
+        <div class="panel health-panel">
+          <div class="section-heading">
+            <div><h2>Состояние и диски</h2><p>NET_DVR_GetDVRWorkState_V30</p></div>
+            <button id="deviceStatusBtn" class="btn">Обновить</button>
+          </div>
+          <div id="deviceHealth" class="health-content">
+            <div class="empty-note">Состояние ещё не запрашивалось</div>
+          </div>
+        </div>
+
+        <div class="panel network-panel">
+          <div class="section-heading">
+            <div><h2>Сетевая нагрузка</h2><p>Preview / Playback / IPC / Disk</p></div>
+            <button id="networkUsageBtn" class="btn">Получить</button>
+          </div>
+          <div id="networkMetrics" class="metric-grid">
+            <div class="metric"><span>Live</span><strong>—</strong></div>
+            <div class="metric"><span>Playback</span><strong>—</strong></div>
+            <div class="metric"><span>IPC</span><strong>—</strong></div>
+            <div class="metric"><span>Disk</span><strong>—</strong></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-system">
+      <div class="system-grid">
+        <div class="panel">
+          <div class="section-heading">
+            <div><h2>Docker / SDK</h2><p>Состояние серверной части</p></div>
+            <button id="systemRefresh" class="btn">Проверить</button>
+          </div>
+          <pre id="systemStatus" class="code-box">Загрузка…</pre>
+        </div>
+        <div class="panel">
+          <div class="section-heading">
+            <div><h2>Возможности HCNetSDK</h2><p>Лимиты одновременных операций</p></div>
+            <button id="abilityBtn" class="btn">Получить</button>
+          </div>
+          <div id="abilityMetrics" class="metric-grid">
+            <div class="metric"><span>Live</span><strong>—</strong></div>
+            <div class="metric"><span>Playback</span><strong>—</strong></div>
+            <div class="metric"><span>Alarms</span><strong>—</strong></div>
+            <div class="metric"><span>Voice</span><strong>—</strong></div>
+          </div>
+        </div>
+        <div class="panel full-span notice-panel">
+          <strong>Безопасный режим конфигурации</strong>
+          <p>Интерфейс читает параметры устройства и управляет просмотром/PTZ. Изменение сетевых настроек, форматирование дисков, обновление прошивки и другие опасные операции намеренно не выполняются без отдельного явного подтверждения.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-logs">
+      <div class="panel log-panel">
+        <div class="section-heading">
+          <div><h2>Журнал работы</h2><p>Запросы интерфейса и ответы HCNetSDK</p></div>
+          <button id="clearLog" class="btn">Очистить</button>
+        </div>
+        <pre id="log"></pre>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="toastHost" class="toast-host"></div>
+
+<script src="/vendor/hls.min.js"></script>
+<script src="/app.js?v=3"></script>
+</body>
+</html>

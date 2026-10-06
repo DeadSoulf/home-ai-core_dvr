@@ -1,0 +1,10 @@
+services:
+  dvr:
+    build: .
+    image: home-ai-core-dvr:6.1.9.48
+    container_name: home-ai-core-dvr
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./data/output:/app/output
