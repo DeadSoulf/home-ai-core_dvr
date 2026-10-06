@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "id": "nvr",
+  "name": "Cameras / NVR",
+  "description": "HOME AI Cameras/NVR module with Hikvision HCNetSDK V6.1.9.48 media runtime",
+  "version": "0.1.0",
+  "core": ">=0.1.0 <1.0.0",
+  "permissions": [
+    "camera.list",
+    "camera.live",
+    "camera.archive",
+    "camera.export",
+    "camera.ptz",
+    "camera.manage",
+    "nvr.storage.manage",
+    "nvr.settings.manage"
+  ],
+  "capabilities": {
+    "requires": [
+      "host.linux",
+      "runtime.docker"
+    ],
+    "provides": [
+      "camera.nvr",
+      "camera.hikvision"
+    ]
+  },
+  "host": {
+    "architectures": [
+      "amd64"
+    ]
+  },
+  "runtime": {
+    "driver": "docker",
+    "image": "ghcr.io/deadsoulf/home-ai-core-dvr:0.1.0",
+    "internal_port": 8090,
+    "health_path": "/health"
+  },
+  "api": {
+    "namespace": "nvr"
+  },
+  "events": {
+    "publishes": [
+      "nvr.camera.online",
+      "nvr.camera.offline",
+      "nvr.recording.started",
+      "nvr.recording.stopped"
+    ]
+  },
+  "ui": {
+    "navigation": [
+      {
+        "id": "cameras",
+        "title": "Cameras",
+        "route": "/modules/nvr",
+        "icon": "camera",
+        "order": 20
+      }
+    ]
+  },
+  "lifecycle": [
+    "install",
+    "upgrade",
+    "remove",
+    "backup",
+    "restore"
+  ]
+}
