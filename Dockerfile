@@ -1,5 +1,10 @@
 FROM ubuntu:22.04
 
+LABEL org.opencontainers.image.title="HOME AI Cameras / NVR"
+LABEL org.opencontainers.image.description="External HOME AI NVR module with Hikvision HCNetSDK"
+LABEL org.opencontainers.image.source="https://github.com/DeadSoulf/home-ai-core_dvr"
+LABEL org.opencontainers.image.version="0.1.0"
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
