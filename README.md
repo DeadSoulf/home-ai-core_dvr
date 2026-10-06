@@ -1,33 +1,36 @@
-# HOME AI Core DVR
+# HOME AI Cameras / NVR module
 
-Минимальный Docker-проект DVR/NVR на базе Hikvision HCNetSDK V6.1.9.48 Linux64.
+Отдельный Docker-модуль **Cameras / NVR** для HOME AI на базе Hikvision HCNetSDK V6.1.9.48 Linux64.
 
-## Что оставлено
+Этот репозиторий больше не является частью бинарника HOME AI Core. Core управляет установкой, версиями, разрешениями и lifecycle модуля, а NVR работает в собственном контейнере.
 
-- HCNetSDK runtime-библиотеки, необходимые для функций NVR/DVR.
-- Веб-консоль HCNetSDK NVR Console.
-- Вспомогательные runtime-утилиты, которые вызываются веб-сервером:
-  - `sdk-smoke`
-  - `sdk-login-test`
-  - `sdk-stream`
-  - `sdk-action`
-  - `sdk-alarm-monitor`
-  - `sdk-extended`
-- FFmpeg для Live View/HLS и работы с видео.
+## Module contract
 
-## Что удалено из исходного Docker-образа
+Manifest: `module.json`
 
-- большой экспорт `.tar`;
-- официальный интерактивный demo-бинарник `sdkTest`;
-- C/C++ headers SDK, не нужные для runtime;
-- Python `__pycache__`;
-- временные HLS/архивные файлы и логи;
-- отладочные подсказки старого entrypoint.
+- module ID: `nvr`
+- module version: `0.1.0`
+- runtime: Docker
+- architecture: `amd64`
+- internal port: `8090`
+- health endpoint: `/health`
+- image target: `ghcr.io/deadsoulf/home-ai-core-dvr:0.1.0`
 
-## Сборка
+HCNetSDK runtime пока доступен только для Linux amd64/x86_64, поэтому manifest не объявляет arm64.
+
+## Что входит в контейнер
+
+- HCNetSDK runtime-библиотеки;
+- Web/API service модуля;
+- runtime-утилиты `sdk-smoke`, `sdk-login-test`, `sdk-stream`, `sdk-action`, `sdk-alarm-monitor`, `sdk-extended`;
+- FFmpeg для Live View/HLS и обработки видео.
+
+## Локальная разработка
+
+Сборка:
 
 ```bash
-docker build -t home-ai-core-dvr:6.1.9.48 .
+docker build -t home-ai-core-dvr:0.1.0 .
 ```
 
 или:
@@ -36,33 +39,41 @@ docker build -t home-ai-core-dvr:6.1.9.48 .
 docker compose build
 ```
 
-## Запуск
+Запуск:
 
 ```bash
 docker compose up -d
 ```
 
-Веб-интерфейс:
+Standalone compose публикует Web/API **только на localhost**:
 
 ```text
-http://localhost:8090
+http://127.0.0.1:8090
 ```
 
-Проверка состояния:
-
-```bash
-docker inspect --format '{{.State.Health.Status}}' home-ai-core-dvr
-```
-
-API status:
+Проверка module health:
 
 ```text
-http://localhost:8090/api/status
+http://127.0.0.1:8090/health
 ```
+
+Расширенный статус SDK:
+
+```text
+http://127.0.0.1:8090/api/status
+```
+
+## Работа под HOME AI Core
+
+В штатной установке Core не должен публиковать порт 8090 напрямую в LAN/Internet. Контейнер подключается к управляемой HOME AI module network, а доступ пользователя к API/UI модуля проходит через Core с его identity/RBAC/audit boundary.
+
+Контейнеру не передаётся `/var/run/docker.sock` и он не запускается в privileged mode.
+
+Persistent runtime-данные должны храниться в отдельном volume/data directory модуля.
 
 ## Данные
 
-Runtime-выходы сохраняются в:
+Текущий development compose сохраняет runtime-выходы в:
 
 ```text
 ./data/output
@@ -70,12 +81,19 @@ Runtime-выходы сохраняются в:
 
 Каталог не коммитится в Git.
 
-## Архитектура
+## Текущий функционал прототипа
 
-Текущие HCNetSDK и вспомогательные бинарники собраны для Linux amd64/x86_64.
+- подключение к Hikvision DVR/NVR через HCNetSDK;
+- чтение каналов и состояния устройства;
+- Live View/HLS;
+- snapshots;
+- PTZ/presets;
+- alarms/events;
+- поиск и подготовка архива;
+- FFmpeg media processing.
 
-## Важно
+Следующий этап — убрать standalone-ориентированную авторизацию/конфигурацию из UI и подключить модуль к namespaced Core API contract.
 
-Файлы в `sdk/lib` являются сторонними бинарными компонентами Hikvision. Их использование и распространение регулируются условиями производителя.
+## Third-party SDK
 
-Текущая веб-консоль слушает порт 8090 и изначально не имеет отдельной HTTP-аутентификации. Не публикуйте этот порт напрямую в Интернет без reverse proxy, авторизации и TLS.
+Файлы в `sdk/lib` являются сторонними бинарными компонентами Hikvision. Их использование и распространение регулируются условиями производителя. Перед публичной публикацией контейнерного образа необходимо отдельно подтвердить право на распространение этих бинарных файлов.
