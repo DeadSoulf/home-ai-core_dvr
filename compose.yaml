@@ -4,6 +4,10 @@ services:
     image: home-ai-core-dvr:6.1.9.48
     container_name: h.a.c._nvr
     restart: unless-stopped
+    environment:
+      NVR_SEGMENT_SECONDS: "300"
+      NVR_RETENTION_DAYS: "7"
+      NVR_MAX_STORAGE_GB: "50"
     ports:
       - "8090:8090"
     volumes:
