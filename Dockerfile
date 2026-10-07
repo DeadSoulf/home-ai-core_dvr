@@ -1,7 +1,7 @@
 FROM ubuntu:22.04
 
 LABEL org.opencontainers.image.title="h.a.c._nvr"
-LABEL org.opencontainers.image.version="1.1.0"
+LABEL org.opencontainers.image.version="1.1.1"
 
 ENV DEBIAN_FRONTEND=noninteractive
 
