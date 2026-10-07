@@ -1,5 +1,8 @@
 FROM ubuntu:22.04
 
+LABEL org.opencontainers.image.title="h.a.c._nvr"
+LABEL org.opencontainers.image.version="1.0.0"
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
