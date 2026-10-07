@@ -402,7 +402,7 @@ async function refreshSdkStatus() {
   try {
     const data = await api("/api/status");
     $("sdkDot").className = "status-dot ok";
-    $("sdkStateText").textContent = "SDK работает";
+    $("sdkStateText").textContent = "NVR работает";
     $("sdkSubText").textContent = data.sdk;
     $("systemStatus").textContent = [
       data.sdk,
