@@ -19,10 +19,11 @@ ENV LD_LIBRARY_PATH=/opt/hikvision/lib:/opt/hikvision/lib/HCNetSDKCom
 COPY sdk/lib/ /opt/hikvision/lib/
 COPY bin/ /usr/local/bin/
 COPY web/ /app/web/
+COPY nvr/ /app/nvr/
 COPY scripts/entrypoint.sh /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh /usr/local/bin/sdk-* \
-    && mkdir -p /app/output/hls /app/output/archive /app/sdkLog
+    && mkdir -p /app/output/hls /app/output/archive /app/output/recordings /app/output/logs /app/sdkLog
 
 WORKDIR /app
 EXPOSE 8090
