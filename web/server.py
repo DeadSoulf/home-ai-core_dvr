@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nvr.recorder import NVRRecorderManager
 
 WEB_ROOT = Path("/app/web")
-OUTPUT_ROOT = Path("/app/output")
+OUTPUT_ROOT = Path(os.environ.get("NVR_DATA_ROOT", "/data"))
 HLS_ROOT = OUTPUT_ROOT / "hls"
 ARCHIVE_ROOT = OUTPUT_ROOT / "archive"
 HOST = "0.0.0.0"
