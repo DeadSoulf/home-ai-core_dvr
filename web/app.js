@@ -410,7 +410,7 @@ async function refreshSdkStatus() {
     $("sdkSubText").textContent = nvr.active_recorders + " REC · " + formatSize(nvr.storage_bytes);
     $("systemStatus").textContent = [
       "NVR: h.a.c._nvr",
-      "Камер: " + nvr.cameras,
+      "Камер: " + nvr.cameras + " / " + nvr.max_cameras,
       "Активных записей: " + nvr.active_recorders,
       "Файлов архива: " + nvr.recordings,
       "Архив занимает: " + formatSize(nvr.storage_bytes),
