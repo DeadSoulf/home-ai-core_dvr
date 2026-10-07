@@ -21,6 +21,7 @@ const state = {
   hls: Array.from({ length: 9 }, () => null),
   events: [],
   eventActive: false,
+  nvrCameras: [],
   busy: false
 };
 
@@ -400,11 +401,22 @@ function updateLiveCount() {
 
 async function refreshSdkStatus() {
   try {
-    const data = await api("/api/status");
+    const [data, nvr] = await Promise.all([
+      api("/api/status"),
+      api("/api/nvr/status")
+    ]);
     $("sdkDot").className = "status-dot ok";
     $("sdkStateText").textContent = "NVR работает";
-    $("sdkSubText").textContent = data.sdk;
+    $("sdkSubText").textContent = nvr.active_recorders + " REC · " + formatSize(nvr.storage_bytes);
     $("systemStatus").textContent = [
+      "NVR: h.a.c._nvr",
+      "Камер: " + nvr.cameras,
+      "Активных записей: " + nvr.active_recorders,
+      "Файлов архива: " + nvr.recordings,
+      "Архив занимает: " + formatSize(nvr.storage_bytes),
+      "Хранение: " + nvr.retention_days + " дн. / " + nvr.max_storage_gb + " GB",
+      "Сегмент: " + nvr.segment_seconds + " сек.",
+      "",
       data.sdk,
       data.ffmpeg,
       "",
@@ -414,7 +426,7 @@ async function refreshSdkStatus() {
     ].join("\n");
   } catch (e) {
     $("sdkDot").className = "status-dot bad";
-    $("sdkStateText").textContent = "Ошибка SDK";
+    $("sdkStateText").textContent = "Ошибка NVR";
     $("sdkSubText").textContent = e.message;
     $("systemStatus").textContent = e.message;
   }
@@ -503,12 +515,66 @@ function fillChannelSelects() {
   const select = $("archiveChannel");
   select.textContent = "";
 
-  state.channels.forEach((ch) => {
+  state.nvrCameras.forEach((camera) => {
     const opt = document.createElement("option");
-    opt.value = ch.id;
-    opt.textContent = ch.name;
+    opt.value = camera.id;
+    opt.textContent = camera.name + (camera.recording ? " · REC" : "");
     select.appendChild(opt);
   });
+
+  if (!state.nvrCameras.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "Нет камер в NVR";
+    select.appendChild(opt);
+  }
+}
+
+async function loadNvrCameras() {
+  try {
+    const data = await api("/api/nvr/cameras");
+    state.nvrCameras = data.cameras || [];
+    fillChannelSelects();
+  } catch (e) {
+    state.nvrCameras = [];
+    fillChannelSelects();
+    log("NVR: " + e.message, "error");
+  }
+}
+
+async function addSelectedToNvr() {
+  if (!requireConnection()) return;
+  const channel = Number(state.selectedChannel || 1);
+  const ch = channelById(channel);
+  const ip = $("ip").value.trim();
+  const btn = $("addToNvrBtn");
+  btn.disabled = true;
+  btn.textContent = "Добавление…";
+
+  try {
+    const data = await api("/api/nvr/cameras", {
+      method: "POST",
+      body: JSON.stringify({
+        name: (ch ? ch.name : "Канал " + channel) + " · " + ip,
+        source_type: "hikvision",
+        ip: ip,
+        port: Number($("port").value || 8000),
+        username: $("user").value.trim(),
+        password: $("password").value,
+        channel: channel,
+        enabled: true
+      })
+    });
+    await loadNvrCameras();
+    toast("Канал добавлен в NVR и запись запущена", "ok");
+    log("NVR: запись " + data.camera.name + " включена", "ok");
+  } catch (e) {
+    toast(e.message, "error");
+    log("NVR: " + e.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Добавить канал в NVR";
+  }
 }
 
 async function refreshDeviceStatus() {
@@ -654,35 +720,41 @@ function setupArchiveDefaults() {
 }
 
 async function searchArchive() {
-  if (!requireConnection()) return;
+  const cameraId = $("archiveChannel").value;
+  if (!cameraId) {
+    toast("Сначала добавьте камеру в NVR", "error");
+    return;
+  }
 
-  const channel = Number($("archiveChannel").value || state.selectedChannel || 1);
   const btn = $("archiveSearchBtn");
   btn.disabled = true;
   btn.textContent = "Поиск…";
 
   try {
-    const data = await api("/api/archive-search", {
-      method: "POST",
-      body: JSON.stringify({
-        ...credentials(channel),
-        start: $("archiveStart").value,
-        end: $("archiveEnd").value
-      })
-    });
-    renderArchiveResults(data.files || [], channel);
-    log(data.details || data.message, "ok");
+    const start = Math.floor(new Date($("archiveStart").value).getTime() / 1000);
+    const end = Math.floor(new Date($("archiveEnd").value).getTime() / 1000);
+    const data = await api(
+      "/api/nvr/recordings?camera_id=" + encodeURIComponent(cameraId) +
+      "&start=" + encodeURIComponent(start) +
+      "&end=" + encodeURIComponent(end) +
+      "&limit=2000"
+    );
+    renderArchiveResults(data.recordings || []);
   } catch (e) {
-    renderArchiveResults([], channel);
+    renderArchiveResults([]);
     toast(e.message, "error");
-    log(e.details || e.message, "error");
+    log("NVR archive: " + e.message, "error");
   } finally {
     btn.disabled = false;
     btn.textContent = "Найти";
   }
 }
 
-function renderArchiveResults(files, channel) {
+function formatArchiveTime(ts) {
+  return new Date(Number(ts || 0) * 1000).toLocaleString("ru-RU");
+}
+
+function renderArchiveResults(files) {
   $("archiveResultCount").textContent = files.length + " записей";
   const body = $("archiveTableBody");
   body.textContent = "";
@@ -696,8 +768,14 @@ function renderArchiveResults(files, channel) {
 
   files.forEach((file) => {
     const tr = document.createElement("tr");
+    const filename = (file.path || "").split("/").pop() || file.path || "recording.mp4";
 
-    [file.start, file.end, formatSize(file.size), file.filename].forEach((value) => {
+    [
+      formatArchiveTime(file.started_at),
+      formatArchiveTime(file.ended_at),
+      formatSize(file.size_bytes),
+      filename
+    ].forEach((value) => {
       const td = document.createElement("td");
       td.textContent = value;
       tr.appendChild(td);
@@ -707,45 +785,24 @@ function renderArchiveResults(files, channel) {
     const play = document.createElement("button");
     play.className = "btn";
     play.textContent = "Воспроизвести";
-    play.addEventListener("click", () => prepareArchive(file, channel, play));
+    play.addEventListener("click", () => prepareArchive(file));
     actions.appendChild(play);
     tr.appendChild(actions);
     body.appendChild(tr);
   });
 }
 
-async function prepareArchive(file, channel, button) {
-  button.disabled = true;
-  const old = button.textContent;
-  button.textContent = "Подготовка…";
-  $("archiveNowTitle").textContent = "Подготовка: " + file.start;
-
-  try {
-    const data = await api("/api/archive-prepare", {
-      method: "POST",
-      body: JSON.stringify({
-        ...credentials(channel),
-        filename: file.filename
-      })
-    });
-
-    const player = $("archivePlayer");
-    $("archivePlayerEmpty").classList.add("hidden");
-    player.src = data.playback_url;
-    player.load();
-    player.play().catch(() => {});
-    $("archiveNowTitle").textContent = file.start + " — " + file.end;
-    $("archiveDownload").href = data.download_url;
-    $("archiveDownload").classList.remove("hidden");
-    toast("Запись готова к воспроизведению", "ok");
-  } catch (e) {
-    $("archiveNowTitle").textContent = "Не удалось подготовить запись";
-    toast(e.message, "error");
-    log(e.details || e.message, "error");
-  } finally {
-    button.disabled = false;
-    button.textContent = old;
-  }
+async function prepareArchive(file) {
+  const player = $("archivePlayer");
+  $("archivePlayerEmpty").classList.add("hidden");
+  player.src = file.url;
+  player.load();
+  player.play().catch(() => {});
+  $("archiveNowTitle").textContent =
+    formatArchiveTime(file.started_at) + " — " + formatArchiveTime(file.ended_at);
+  $("archiveDownload").href = file.url;
+  $("archiveDownload").classList.remove("hidden");
+  toast("Запись открыта из локального архива NVR", "ok");
 }
 
 async function startEvents() {
@@ -920,6 +977,7 @@ function localDateValue(d) {
 $("quickConnect").addEventListener("click", () => navigate("device"));
 $("connectBtn").addEventListener("click", connectDevice);
 $("disconnectBtn").addEventListener("click", disconnectUi);
+$("addToNvrBtn").addEventListener("click", addSelectedToNvr);
 $("refreshDeviceState").addEventListener("click", refreshDeviceStatus);
 $("deviceStatusBtn").addEventListener("click", refreshDeviceStatus);
 $("networkUsageBtn").addEventListener("click", loadNetworkUsage);
@@ -975,6 +1033,7 @@ renderCameraList();
 fillChannelSelects();
 renderEventState();
 refreshSdkStatus();
+loadNvrCameras();
 loadAbility();
 pollEvents();
 
@@ -985,4 +1044,4 @@ setInterval(() => {
 setInterval(pollEvents, 2500);
 setInterval(refreshSdkStatus, 15000);
 
-log("HCNetSDK NVR Console запущен. Готов к подключению.");
+log("NVR запущен. Готов к подключению и записи.");
