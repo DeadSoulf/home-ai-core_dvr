@@ -159,12 +159,12 @@
         <div class="panel archive-search-panel">
           <div class="section-heading">
             <div>
-              <h2>Поиск записей</h2>
-              <p>По каналу и интервалу времени</p>
+              <h2>Локальный архив NVR</h2>
+              <p>Записи, сохранённые контейнером h.a.c._nvr</p>
             </div>
           </div>
           <div class="form-row">
-            <label>Канал<select id="archiveChannel"></select></label>
+            <label>Камера<select id="archiveChannel"></select></label>
             <label>Начало<input id="archiveStart" type="datetime-local" step="1"></label>
             <label>Окончание<input id="archiveEnd" type="datetime-local" step="1"></label>
             <button id="archiveSearchBtn" class="btn primary">Найти</button>
@@ -256,6 +256,7 @@
           <div class="action-row">
             <button id="connectBtn" class="btn primary">Подключиться</button>
             <button id="disconnectBtn" class="btn">Отключить интерфейс</button>
+            <button id="addToNvrBtn" class="btn primary">Добавить канал в NVR</button>
           </div>
         </div>
 
