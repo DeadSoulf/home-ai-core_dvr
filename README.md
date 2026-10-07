@@ -1,3 +1,5 @@
+> Продолжение разработки и рабочие принципы: [docs/PROJECT_CONTEXT_RU.md](docs/PROJECT_CONTEXT_RU.md)
+
 # HOME AI Core DVR
 
 Минимальный Docker-проект DVR/NVR на базе Hikvision HCNetSDK V6.1.9.48 Linux64.
