@@ -32,8 +32,8 @@ WORKDIR /app
 EXPOSE 8090
 VOLUME ["/app/output"]
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD /usr/local/bin/sdk-smoke >/tmp/hcnetsdk-health.log 2>&1 || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/api/nvr/status', timeout=5).read()" || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["python3", "/app/web/server.py"]
