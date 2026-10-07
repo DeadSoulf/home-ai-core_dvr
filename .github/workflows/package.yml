@@ -35,13 +35,13 @@ jobs:
           cp -a bin sdk nvr web scripts docs dist/h.a.c._nvr/
           mkdir -p dist/h.a.c._nvr/data/output
           touch dist/h.a.c._nvr/data/output/.gitkeep
-          printf '%s\\n' \\
-            'h.a.c._nvr package' \\
-            "commit=$GITHUB_SHA" \\
-            'container=h.a.c._nvr' \\
-            'image=home-ai-core-nvr:1.0.0' \\
-            'max_cameras=32' \\
-            > dist/h.a.c._nvr/VERSION.txt
+          cat > dist/h.a.c._nvr/VERSION.txt <<EOF
+          h.a.c._nvr package
+          commit=$GITHUB_SHA
+          container=h.a.c._nvr
+          image=home-ai-core-nvr:1.0.0
+          max_cameras=32
+          EOF
           cd dist
           short_sha="$(echo "$GITHUB_SHA" | cut -c1-8)"
           zip -r -9 "h.a.c._nvr_${short_sha}.zip" h.a.c._nvr
