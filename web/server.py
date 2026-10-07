@@ -10,7 +10,9 @@ import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, parse_qs, urlparse
+
+from nvr.recorder import NVRRecorderManager
 
 WEB_ROOT = Path("/app/web")
 OUTPUT_ROOT = Path("/app/output")
@@ -21,6 +23,8 @@ PORT = 8090
 
 for p in (OUTPUT_ROOT, HLS_ROOT, ARCHIVE_ROOT):
     p.mkdir(parents=True, exist_ok=True)
+
+NVR = NVRRecorderManager(OUTPUT_ROOT)
 
 LIVE_LOCK = threading.RLock()
 LIVE_SESSIONS = {}
@@ -467,7 +471,33 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        clean = unquote(self.path.split("?", 1)[0])
+        parsed = urlparse(self.path)
+        clean = unquote(parsed.path)
+        query = parse_qs(parsed.query)
+
+        if clean == "/api/nvr/status":
+            self.send_json(NVR.status())
+            return
+
+        if clean == "/api/nvr/cameras":
+            self.send_json({"ok": True, "cameras": NVR.list_cameras()})
+            return
+
+        if clean == "/api/nvr/recordings":
+            camera_id = (query.get("camera_id") or [None])[0]
+            start = (query.get("start") or [None])[0]
+            end = (query.get("end") or [None])[0]
+            limit = (query.get("limit") or ["500"])[0]
+            self.send_json({
+                "ok": True,
+                "recordings": NVR.list_recordings(
+                    camera_id=camera_id,
+                    start=int(start) if start else None,
+                    end=int(end) if end else None,
+                    limit=int(limit),
+                ),
+            })
+            return
 
         if clean == "/api/status":
             result = run_cmd(["/usr/local/bin/sdk-smoke"], timeout=10)
@@ -517,6 +547,36 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
+            clean = urlparse(self.path).path
+
+            if clean == "/api/nvr/cameras":
+                camera = NVR.save_camera(data)
+                self.send_json({"ok": True, "camera": camera}, 201)
+                return
+
+            if clean == "/api/nvr/retention":
+                removed = NVR.enforce_retention()
+                self.send_json({"ok": True, "removed": removed, "status": NVR.status()})
+                return
+
+            if clean.startswith("/api/nvr/cameras/"):
+                parts = clean.strip("/").split("/")
+                if len(parts) == 5 and parts[:3] == ["api", "nvr", "cameras"]:
+                    camera_id = parts[3]
+                    action = parts[4]
+                    if action == "start":
+                        NVR.start_camera(camera_id)
+                        self.send_json({"ok": True, "camera": NVR.get_camera(camera_id)})
+                        return
+                    if action == "stop":
+                        stopped = NVR.stop_camera(camera_id)
+                        self.send_json({"ok": True, "stopped": stopped, "camera": NVR.get_camera(camera_id)})
+                        return
+                    if action == "restart":
+                        NVR.restart_camera(camera_id)
+                        self.send_json({"ok": True, "camera": NVR.get_camera(camera_id)})
+                        return
+
             if self.path == "/api/login":
                 env = device_env(data)
                 result = run_cmd(["/usr/local/bin/sdk-login-test"], env=env, timeout=12)
@@ -762,8 +822,27 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": f"Внутренняя ошибка: {e}"}, 500)
 
 
+
+    def do_DELETE(self):
+        clean = urlparse(self.path).path
+        if not clean.startswith("/api/nvr/cameras/"):
+            self.send_json({"ok": False, "error": "Неизвестный API-метод"}, 404)
+            return
+        parts = clean.strip("/").split("/")
+        if len(parts) != 4 or parts[:3] != ["api", "nvr", "cameras"]:
+            self.send_json({"ok": False, "error": "Некорректный путь"}, 400)
+            return
+        camera_id = parts[3]
+        query = parse_qs(urlparse(self.path).query)
+        delete_recordings = (query.get("delete_recordings") or ["0"])[0].lower() in {"1", "true", "yes", "on"}
+        deleted = NVR.delete_camera(camera_id, delete_recordings=delete_recordings)
+        self.send_json({"ok": True, "deleted": deleted})
+
+
 if __name__ == "__main__":
-    print(f"HCNetSDK NVR Web UI: http://{HOST}:{PORT}", flush=True)
+    NVR.start()
+    print(f"NVR Web UI: http://{HOST}:{PORT}", flush=True)
+    print(f"NVR recorder: {json.dumps(NVR.status(), ensure_ascii=False)}", flush=True)
     try:
         ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
     finally:
@@ -772,3 +851,4 @@ if __name__ == "__main__":
         for key in keys:
             stop_live(key)
         stop_alarm_monitor()
+        NVR.stop()
