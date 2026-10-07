@@ -8,6 +8,7 @@ services:
       NVR_SEGMENT_SECONDS: "300"
       NVR_RETENTION_DAYS: "7"
       NVR_MAX_STORAGE_GB: "50"
+      NVR_MAX_CAMERAS: "32"
     ports:
       - "8090:8090"
     volumes:
