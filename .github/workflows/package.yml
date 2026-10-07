@@ -1,0 +1,55 @@
+name: Build NVR package
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/package.yml"
+      - "Dockerfile"
+      - "compose.yaml"
+      - "README.md"
+      - "THIRD_PARTY.md"
+      - "bin/**"
+      - "sdk/**"
+      - "nvr/**"
+      - "web/**"
+      - "scripts/**"
+      - "docs/**"
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/h.a.c._nvr
+          cp -a .dockerignore .gitignore Dockerfile compose.yaml README.md THIRD_PARTY.md dist/h.a.c._nvr/
+          cp -a bin sdk nvr web scripts docs dist/h.a.c._nvr/
+          mkdir -p dist/h.a.c._nvr/data/output
+          touch dist/h.a.c._nvr/data/output/.gitkeep
+          printf '%s\\n' \\
+            'h.a.c._nvr package' \\
+            "commit=$GITHUB_SHA" \\
+            'container=h.a.c._nvr' \\
+            'image=home-ai-core-nvr:1.0.0' \\
+            'max_cameras=32' \\
+            > dist/h.a.c._nvr/VERSION.txt
+          cd dist
+          short_sha="$(echo "$GITHUB_SHA" | cut -c1-8)"
+          zip -r -9 "h.a.c._nvr_${short_sha}.zip" h.a.c._nvr
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: hac-nvr-package
+          path: dist/h.a.c._nvr_*.zip
+          if-no-files-found: error
+          retention-days: 30
