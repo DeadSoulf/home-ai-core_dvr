@@ -11,7 +11,9 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, parse_qs, urlparse
+import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nvr.recorder import NVRRecorderManager
 
 WEB_ROOT = Path("/app/web")
