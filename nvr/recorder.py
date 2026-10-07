@@ -20,6 +20,7 @@ class NVRRecorderManager:
         self.segment_seconds = max(30, int(os.environ.get("NVR_SEGMENT_SECONDS", "300")))
         self.retention_days = max(0, int(os.environ.get("NVR_RETENTION_DAYS", "7")))
         self.max_storage_gb = max(0.0, float(os.environ.get("NVR_MAX_STORAGE_GB", "50")))
+        self.max_cameras = max(1, min(32, int(os.environ.get("NVR_MAX_CAMERAS", "32"))))
         self.lock = threading.RLock()
         self.processes = {}
         self.stop_event = threading.Event()
@@ -106,6 +107,12 @@ class NVRRecorderManager:
 
         camera_id = self._safe_camera_id(data.get("id")) or uuid.uuid4().hex[:12]
         existing = self.get_camera(camera_id, include_secret=True)
+
+        if not existing:
+            with self._connect() as db:
+                camera_count = int(db.execute("SELECT COUNT(*) AS n FROM cameras").fetchone()["n"])
+            if camera_count >= self.max_cameras:
+                raise ValueError(f"Достигнут лимит NVR: максимум {self.max_cameras} камер")
 
         ip = str(data.get("ip", existing.get("ip", "") if existing else "")).strip()
         username = str(data.get("username", data.get("user", existing.get("username", "") if existing else ""))).strip()
@@ -450,6 +457,8 @@ class NVRRecorderManager:
             "ok": True,
             "service": "h.a.c._nvr",
             "cameras": len(cameras),
+            "max_cameras": self.max_cameras,
+            "camera_slots_free": max(0, self.max_cameras - len(cameras)),
             "active_recorders": active,
             "recordings": int(count),
             "storage_bytes": self.storage_bytes(),
