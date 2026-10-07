@@ -1,7 +1,7 @@
 services:
   dvr:
     build: .
-    image: home-ai-core-dvr:6.1.9.48
+    image: home-ai-core-nvr:1.0.0
     container_name: h.a.c._nvr
     restart: unless-stopped
     environment:
