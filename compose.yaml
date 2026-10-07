@@ -1,7 +1,7 @@
 services:
   dvr:
     build: .
-    image: home-ai-core-nvr:1.0.0
+    image: home-ai-core-nvr:1.1.0
     container_name: h.a.c._nvr
     restart: unless-stopped
     environment:
@@ -9,7 +9,8 @@ services:
       NVR_RETENTION_DAYS: "7"
       NVR_MAX_STORAGE_GB: "50"
       NVR_MAX_CAMERAS: "32"
+      NVR_DATA_ROOT: "/data"
     ports:
       - "8090:8090"
     volumes:
-      - ./data/output:/app/output
+      - ./data/output:/data
