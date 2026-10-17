@@ -11,6 +11,20 @@ import uuid
 from pathlib import Path
 
 
+class ClosingSQLiteConnection(sqlite3.Connection):
+    """Commit/rollback AND close when used in a with block.
+
+    sqlite3.Connection.__exit__ does not close the file descriptor on its own.
+    Long-running NVR operations must not accumulate idle SQLite handles.
+    """
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 class NVRRecorderManager:
     def __init__(self, output_root):
         self.output_root = Path(output_root)
@@ -31,7 +45,7 @@ class NVRRecorderManager:
         self._init_db()
 
     def _connect(self):
-        db = sqlite3.connect(self.db_path, timeout=15)
+        db = sqlite3.connect(self.db_path, timeout=15, factory=ClosingSQLiteConnection)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA foreign_keys=ON")
