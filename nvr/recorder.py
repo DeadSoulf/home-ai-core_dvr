@@ -15,7 +15,13 @@ from pathlib import Path
 class NVRRecorderManager:
     def __init__(self, output_root):
         self.output_root = Path(output_root)
-        self.recordings_root = self.output_root / "recordings"
+        self.legacy_recordings_root = self.output_root / "recordings"
+        configured = Path(os.environ.get("NVR_RECORDINGS_ROOT", str(self.legacy_recordings_root)))
+        # Docker may separately mount a dedicated video disk at /data/video.
+        # It is never a browser-provided location.
+        if not configured.is_absolute() or configured == self.output_root:
+            raise ValueError("invalid NVR recordings root")
+        self.recordings_root = configured
         self.logs_root = self.output_root / "logs"
         self.db_path = self.output_root / "nvr.db"
         self.segment_seconds = max(30, int(os.environ.get("NVR_SEGMENT_SECONDS", "300")))
@@ -28,6 +34,7 @@ class NVRRecorderManager:
         self.maintenance_thread = None
 
         self.recordings_root.mkdir(parents=True, exist_ok=True)
+        self.legacy_recordings_root.mkdir(parents=True, exist_ok=True)
         self.logs_root.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
@@ -197,7 +204,8 @@ class NVRRecorderManager:
                     (int(time.time()), camera_id),
                 )
         if delete_recordings and cur.rowcount:
-            shutil.rmtree(self.recordings_root / camera_id, ignore_errors=True)
+            for root in (self.recordings_root, self.legacy_recordings_root):
+                shutil.rmtree(root / camera_id, ignore_errors=True)
         return cur.rowcount > 0
 
     def _recording_pattern(self, camera_id):
@@ -356,10 +364,14 @@ class NVRRecorderManager:
     def scan_recordings(self, camera_id=None):
         now = time.time()
         roots = []
+        recording_roots = [self.recordings_root]
+        if self.recordings_root != self.legacy_recordings_root:
+            recording_roots.append(self.legacy_recordings_root)
         if camera_id:
-            roots = [self.recordings_root / self._safe_camera_id(camera_id)]
+            roots = [root / self._safe_camera_id(camera_id) for root in recording_roots]
         else:
-            roots = [p for p in self.recordings_root.iterdir() if p.is_dir()]
+            for root in recording_roots:
+                roots.extend(p for p in root.iterdir() if p.is_dir())
 
         added = 0
         with self._connect() as db:
@@ -466,11 +478,13 @@ class NVRRecorderManager:
 
     def storage_bytes(self):
         total = 0
-        for path in self.recordings_root.rglob("*.mp4"):
-            try:
-                total += path.stat().st_size
-            except OSError:
-                pass
+        recording_roots = {self.recordings_root, self.legacy_recordings_root}
+        for root in recording_roots:
+            for path in root.rglob("*.mp4"):
+                try:
+                    total += path.stat().st_size
+                except OSError:
+                    pass
         return total
 
     def status(self):
