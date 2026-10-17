@@ -179,7 +179,9 @@ class NVRRecorderManager:
             # Never erase files if camera does not exist.
             if not self.get_camera(camera_id):
                 return False
-            shutil.rmtree(self.recordings_root / camera_id, ignore_errors=False)
+            target = self.recordings_root / camera_id
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=False)
             with self._connect() as db:
                 cur = db.execute("DELETE FROM cameras WHERE id = ?", (camera_id,))
             return cur.rowcount > 0
