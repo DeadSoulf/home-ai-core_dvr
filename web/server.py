@@ -319,12 +319,107 @@ def start_live(data):
     return {"ok": False, "error": "Не удалось подготовить браузерный видеопоток", "details": details}
 
 
+def start_saved_camera_live(camera_id):
+    """Open a browser-ready HLS preview using credentials already held by NVR.
+
+    No camera passwords or RTSP URLs are returned to the Core UI.
+    Recording and live preview are independent processes.
+    """
+    camera = NVR.get_camera(camera_id, include_secret=True)
+    if not camera or not camera.get("enabled"):
+        raise ValueError("Камера не найдена или выключена")
+
+    key = "saved_" + NVR._safe_camera_id(camera_id)
+    stop_live(key)
+    target = HLS_ROOT / key
+    shutil.rmtree(target, ignore_errors=True)
+    target.mkdir(parents=True, exist_ok=True)
+    sdk_log = (target / "sdk.log").open("wb")
+    ffmpeg_log = (target / "ffmpeg.log").open("wb")
+    sdk = None
+    ffmpeg = None
+    try:
+        command = [
+            "ffmpeg", "-hide_banner", "-loglevel", "warning",
+            "-fflags", "+genpts+nobuffer",
+        ]
+        if camera["source_type"] == "hikvision":
+            env = {
+                **os.environ,
+                "HCNET_IP": camera["ip"],
+                "HCNET_USER": camera["username"],
+                "HCNET_PASSWORD": camera["password"],
+                "HCNET_PORT": str(camera["port"]),
+                "HCNET_CHANNEL": str(camera["channel"]),
+                "HCNET_STREAM_TYPE": "1",
+            }
+            sdk = subprocess.Popen(
+                ["/usr/local/bin/sdk-stream"],
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=sdk_log,
+                bufsize=0,
+            )
+            command += ["-i", "pipe:0"]
+        else:
+            if not camera["rtsp_url"].lower().startswith(("rtsp://", "rtsps://")):
+                raise ValueError("Не настроен RTSP-адрес камеры")
+            command += ["-rtsp_transport", "tcp", "-i", camera["rtsp_url"]]
+        playlist = target / "index.m3u8"
+        command += [
+            "-map", "0:v:0", "-an",
+            "-vf", "scale='min(1280,iw)':-2",
+            "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+            "-pix_fmt", "yuv420p", "-g", "25",
+            "-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
+            "-hls_flags", "delete_segments+append_list+omit_endlist+independent_segments",
+            str(playlist),
+        ]
+        ffmpeg = subprocess.Popen(
+            command,
+            stdin=sdk.stdout if sdk else subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=ffmpeg_log,
+        )
+        if sdk and sdk.stdout:
+            sdk.stdout.close()
+        sess = {
+            "key": key, "camera_id": camera_id, "channel": camera["channel"],
+            "stream_type": 1, "created": time.time(), "sdk": sdk,
+            "ffmpeg": ffmpeg, "sdk_log_handle": sdk_log,
+            "ffmpeg_log_handle": ffmpeg_log, "dir": target,
+        }
+        with LIVE_LOCK:
+            LIVE_SESSIONS[key] = sess
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            if playlist.exists() and playlist.stat().st_size > 40:
+                return {
+                    "ok": True, "key": key, "camera_id": camera_id,
+                    "playlist_url": f"/output/hls/{key}/index.m3u8",
+                }
+            if (sdk and sdk.poll() is not None) or ffmpeg.poll() is not None:
+                break
+            time.sleep(0.25)
+        stop_live(key)
+        return {"ok": False, "error": "Камера не предоставила видеопоток"}
+    except Exception:
+        stop_live(key)
+        if ffmpeg and ffmpeg.poll() is None:
+            ffmpeg.terminate()
+        if sdk and sdk.poll() is None:
+            sdk.terminate()
+        sdk_log.close()
+        ffmpeg_log.close()
+        raise
+
+
 def live_status():
     items = []
     dead = []
     with LIVE_LOCK:
         for key, s in LIVE_SESSIONS.items():
-            alive = s["sdk"].poll() is None and s["ffmpeg"].poll() is None
+            alive = (s["sdk"] is None or s["sdk"].poll() is None) and s["ffmpeg"].poll() is None
             items.append({
                 "key": key,
                 "channel": s["channel"],
@@ -577,6 +672,17 @@ class Handler(BaseHTTPRequestHandler):
                     if action == "restart":
                         NVR.restart_camera(camera_id)
                         self.send_json({"ok": True, "camera": NVR.get_camera(camera_id)})
+                        return
+                if len(parts) == 6 and parts[:3] == ["api", "nvr", "cameras"] and parts[4] == "live":
+                    camera_id = parts[3]
+                    action = parts[5]
+                    if action == "start":
+                        result = start_saved_camera_live(camera_id)
+                        self.send_json(result, 200 if result.get("ok") else 502)
+                        return
+                    if action == "stop":
+                        key = "saved_" + NVR._safe_camera_id(camera_id)
+                        self.send_json({"ok": True, "stopped": stop_live(key)})
                         return
 
             if self.path == "/api/login":
@@ -837,6 +943,7 @@ class Handler(BaseHTTPRequestHandler):
         camera_id = parts[3]
         query = parse_qs(urlparse(self.path).query)
         delete_recordings = (query.get("delete_recordings") or ["0"])[0].lower() in {"1", "true", "yes", "on"}
+        stop_live("saved_" + NVR._safe_camera_id(camera_id))
         deleted = NVR.delete_camera(camera_id, delete_recordings=delete_recordings)
         self.send_json({"ok": True, "deleted": deleted})
 
