@@ -8,13 +8,20 @@ import subprocess
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 
 class NVRRecorderManager:
     def __init__(self, output_root):
         self.output_root = Path(output_root)
-        self.recordings_root = self.output_root / "recordings"
+        self.legacy_recordings_root = self.output_root / "recordings"
+        configured = Path(os.environ.get("NVR_RECORDINGS_ROOT", str(self.legacy_recordings_root)))
+        # Docker may separately mount a dedicated video disk at /data/video.
+        # It is never a browser-provided location.
+        if not configured.is_absolute() or configured == self.output_root:
+            raise ValueError("invalid NVR recordings root")
+        self.recordings_root = configured
         self.logs_root = self.output_root / "logs"
         self.db_path = self.output_root / "nvr.db"
         self.segment_seconds = max(30, int(os.environ.get("NVR_SEGMENT_SECONDS", "300")))
@@ -27,15 +34,21 @@ class NVRRecorderManager:
         self.maintenance_thread = None
 
         self.recordings_root.mkdir(parents=True, exist_ok=True)
+        self.legacy_recordings_root.mkdir(parents=True, exist_ok=True)
         self.logs_root.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
+    @contextmanager
     def _connect(self):
         db = sqlite3.connect(self.db_path, timeout=15)
         db.row_factory = sqlite3.Row
-        db.execute("PRAGMA journal_mode=WAL")
-        db.execute("PRAGMA foreign_keys=ON")
-        return db
+        try:
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute("PRAGMA foreign_keys=ON")
+            with db:
+                yield db
+        finally:
+            db.close()
 
     def _init_db(self):
         with self._connect() as db:
@@ -71,6 +84,12 @@ class NVRRecorderManager:
                     ON recordings(camera_id, started_at DESC);
                 """
             )
+            # Existing databases must retain their recordings. Soft deletion
+            # keeps the camera FK and the archive index intact by default.
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(cameras)")}
+            if "deleted_at" not in columns:
+                db.execute("ALTER TABLE cameras ADD COLUMN deleted_at INTEGER NOT NULL DEFAULT 0")
+
 
     @staticmethod
     def _safe_camera_id(value):
@@ -86,13 +105,13 @@ class NVRRecorderManager:
 
     def list_cameras(self):
         with self._connect() as db:
-            rows = db.execute("SELECT * FROM cameras ORDER BY name COLLATE NOCASE, id").fetchall()
+            rows = db.execute("SELECT * FROM cameras WHERE deleted_at = 0 ORDER BY name COLLATE NOCASE, id").fetchall()
         return [self._public_camera(r) for r in rows]
 
     def get_camera(self, camera_id, include_secret=False):
         camera_id = self._safe_camera_id(camera_id)
         with self._connect() as db:
-            row = db.execute("SELECT * FROM cameras WHERE id = ?", (camera_id,)).fetchone()
+            row = db.execute("SELECT * FROM cameras WHERE id = ? AND deleted_at = 0", (camera_id,)).fetchone()
         if not row:
             return None
         return dict(row) if include_secret else self._public_camera(row)
@@ -110,7 +129,7 @@ class NVRRecorderManager:
 
         if not existing:
             with self._connect() as db:
-                camera_count = int(db.execute("SELECT COUNT(*) AS n FROM cameras").fetchone()["n"])
+                camera_count = int(db.execute("SELECT COUNT(*) AS n FROM cameras WHERE deleted_at = 0").fetchone()["n"])
             if camera_count >= self.max_cameras:
                 raise ValueError(f"Достигнут лимит NVR: максимум {self.max_cameras} камер")
 
@@ -166,13 +185,27 @@ class NVRRecorderManager:
 
     def delete_camera(self, camera_id, delete_recordings=False):
         camera_id = self._safe_camera_id(camera_id)
+        if not self.get_camera(camera_id):
+            return False
         self.stop_camera(camera_id)
-        if delete_recordings:
-            shutil.rmtree(self.recordings_root / camera_id, ignore_errors=True)
         with self._connect() as db:
             if delete_recordings:
+                # Explicitly destructive: only a separately confirmed request
+                # may remove history. DB changes precede best-effort file cleanup.
                 db.execute("DELETE FROM recordings WHERE camera_id = ?", (camera_id,))
-            cur = db.execute("DELETE FROM cameras WHERE id = ?", (camera_id,))
+                cur = db.execute("DELETE FROM cameras WHERE id = ?", (camera_id,))
+            else:
+                # Preserve recordings and their FK, but erase credentials and
+                # hide the camera from active views and automatic restarting.
+                cur = db.execute(
+                    """UPDATE cameras SET deleted_at = ?, enabled = 0,
+                       ip = '', username = '', password = '', rtsp_url = ''
+                       WHERE id = ? AND deleted_at = 0""",
+                    (int(time.time()), camera_id),
+                )
+        if delete_recordings and cur.rowcount:
+            for root in (self.recordings_root, self.legacy_recordings_root):
+                shutil.rmtree(root / camera_id, ignore_errors=True)
         return cur.rowcount > 0
 
     def _recording_pattern(self, camera_id):
@@ -331,10 +364,14 @@ class NVRRecorderManager:
     def scan_recordings(self, camera_id=None):
         now = time.time()
         roots = []
+        recording_roots = [self.recordings_root]
+        if self.recordings_root != self.legacy_recordings_root:
+            recording_roots.append(self.legacy_recordings_root)
         if camera_id:
-            roots = [self.recordings_root / self._safe_camera_id(camera_id)]
+            roots = [root / self._safe_camera_id(camera_id) for root in recording_roots]
         else:
-            roots = [p for p in self.recordings_root.iterdir() if p.is_dir()]
+            for root in recording_roots:
+                roots.extend(p for p in root.iterdir() if p.is_dir())
 
         added = 0
         with self._connect() as db:
@@ -342,7 +379,7 @@ class NVRRecorderManager:
                 if not root.exists():
                     continue
                 cid = root.name
-                if not self.get_camera(cid):
+                if db.execute("SELECT 1 FROM cameras WHERE id = ?", (cid,)).fetchone() is None:
                     continue
                 for path in root.glob("*.mp4"):
                     try:
@@ -441,11 +478,13 @@ class NVRRecorderManager:
 
     def storage_bytes(self):
         total = 0
-        for path in self.recordings_root.rglob("*.mp4"):
-            try:
-                total += path.stat().st_size
-            except OSError:
-                pass
+        recording_roots = {self.recordings_root, self.legacy_recordings_root}
+        for root in recording_roots:
+            for path in root.rglob("*.mp4"):
+                try:
+                    total += path.stat().st_size
+                except OSError:
+                    pass
         return total
 
     def status(self):
