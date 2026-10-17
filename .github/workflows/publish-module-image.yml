@@ -24,8 +24,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Test NVR camera lifecycle and archive preservation
+        run: PYTHONPATH=. python3 -m unittest discover -s nvr -p 'test_*.py' -v
+
       - name: Build test image
-        run: docker build --platform linux/amd64 -t hac-nvr-test:1.1.2 .
+        run: docker build --platform linux/amd64 -t hac-nvr-test:1.1.3 .
 
       - name: Test Home AI Core runtime profile
         shell: bash
@@ -41,7 +44,7 @@ jobs:
             --pids-limit 512 \
             --tmpfs /tmp:rw,noexec,nosuid,size=64m \
             --mount "type=bind,src=$PWD/.core-test-data,dst=/data" \
-            hac-nvr-test:1.1.2
+            hac-nvr-test:1.1.3
           trap 'docker logs hac-nvr-test || true; docker rm -f hac-nvr-test || true' EXIT
           for i in $(seq 1 30); do
             if docker exec hac-nvr-test python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/api/nvr/status', timeout=2).read()" >/dev/null 2>&1; then
@@ -65,14 +68,14 @@ jobs:
         run: |
           set -euo pipefail
           IMAGE="ghcr.io/deadsoulf/home-ai-core_dvr"
-          docker tag hac-nvr-test:1.1.2 "$IMAGE:1.1.2"
-          docker tag hac-nvr-test:1.1.2 "$IMAGE:sha-${GITHUB_SHA::12}"
-          docker push "$IMAGE:1.1.2"
+          docker tag hac-nvr-test:1.1.3 "$IMAGE:1.1.3"
+          docker tag hac-nvr-test:1.1.3 "$IMAGE:sha-${GITHUB_SHA::12}"
+          docker push "$IMAGE:1.1.3"
           docker push "$IMAGE:sha-${GITHUB_SHA::12}"
-          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:1.1.2" 2>/dev/null || true)"
+          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:1.1.3" 2>/dev/null || true)"
           if [ -z "$DIGEST" ]; then
-            docker pull "$IMAGE:1.1.2"
-            DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:1.1.2")"
+            docker pull "$IMAGE:1.1.3"
+            DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:1.1.3")"
           fi
           echo "$DIGEST" | tee image-digest.txt
           echo "### NVR module image" >> "$GITHUB_STEP_SUMMARY"
