@@ -1,0 +1,36 @@
+name: NVR camera runtime tests
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python tests and syntax
+        run: |
+          python3 -m unittest discover -s tests -v
+          python3 -m py_compile web/server.py nvr/recorder.py
+      - name: Build runtime image
+        run: docker build --platform linux/amd64 -t hac-nvr-ci:1.1.3 .
+      - name: Run NVR health check
+        run: |
+          set -eu
+          mkdir -p .ci-data
+          sudo chown 1001:1001 .ci-data
+          docker run -d --name hac-nvr-ci --user 1001:1001 --read-only             --cap-drop ALL --security-opt no-new-privileges             --tmpfs /tmp:rw,noexec,nosuid,size=64m             --mount "type=bind,src=$PWD/.ci-data,dst=/data" hac-nvr-ci:1.1.3
+          trap 'docker logs hac-nvr-ci || true; docker rm -f hac-nvr-ci || true' EXIT
+          for attempt in $(seq 1 40); do
+            if docker exec hac-nvr-ci python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/api/nvr/status',timeout=2).read()" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
