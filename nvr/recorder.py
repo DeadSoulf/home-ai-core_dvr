@@ -52,6 +52,7 @@ class NVRRecorderManager:
                     channel INTEGER NOT NULL DEFAULT 1,
                     rtsp_url TEXT NOT NULL DEFAULT '',
                     enabled INTEGER NOT NULL DEFAULT 1,
+                    deleted INTEGER NOT NULL DEFAULT 0,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL
                 );
@@ -71,6 +72,12 @@ class NVRRecorderManager:
                     ON recordings(camera_id, started_at DESC);
                 """
             )
+            # Preserve existing NVR databases. Older installations predate
+            # the soft-delete column; add it without resetting credentials,
+            # camera configuration, or recording indices.
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(cameras)")}
+            if "deleted" not in columns:
+                db.execute("ALTER TABLE cameras ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
 
     @staticmethod
     def _safe_camera_id(value):
@@ -80,19 +87,20 @@ class NVRRecorderManager:
     def _public_camera(self, row):
         item = dict(row)
         item.pop("password", None)
+        item.pop("deleted", None)
         item["enabled"] = bool(item.get("enabled"))
         item["recording"] = self.is_recording(item["id"])
         return item
 
     def list_cameras(self):
         with self._connect() as db:
-            rows = db.execute("SELECT * FROM cameras ORDER BY name COLLATE NOCASE, id").fetchall()
+            rows = db.execute("SELECT * FROM cameras WHERE deleted = 0 ORDER BY name COLLATE NOCASE, id").fetchall()
         return [self._public_camera(r) for r in rows]
 
     def get_camera(self, camera_id, include_secret=False):
         camera_id = self._safe_camera_id(camera_id)
         with self._connect() as db:
-            row = db.execute("SELECT * FROM cameras WHERE id = ?", (camera_id,)).fetchone()
+            row = db.execute("SELECT * FROM cameras WHERE id = ? AND deleted = 0", (camera_id,)).fetchone()
         if not row:
             return None
         return dict(row) if include_secret else self._public_camera(row)
@@ -152,6 +160,7 @@ class NVRRecorderManager:
                     channel=excluded.channel,
                     rtsp_url=excluded.rtsp_url,
                     enabled=excluded.enabled,
+                    deleted=0,
                     updated_at=excluded.updated_at
                 """,
                 (camera_id, name, source_type, ip, port, username, password, channel, rtsp_url, enabled, created, now),
@@ -166,13 +175,26 @@ class NVRRecorderManager:
 
     def delete_camera(self, camera_id, delete_recordings=False):
         camera_id = self._safe_camera_id(camera_id)
+        if not camera_id or not self.get_camera(camera_id):
+            return False
         self.stop_camera(camera_id)
-        if delete_recordings:
-            shutil.rmtree(self.recordings_root / camera_id, ignore_errors=True)
         with self._connect() as db:
             if delete_recordings:
+                # Explicit destructive request: remove recording files first,
+                # but never discard their DB references if deletion failed.
+                recordings = self.recordings_root / camera_id
+                if recordings.exists():
+                    shutil.rmtree(recordings)
                 db.execute("DELETE FROM recordings WHERE camera_id = ?", (camera_id,))
-            cur = db.execute("DELETE FROM cameras WHERE id = ?", (camera_id,))
+                cur = db.execute("DELETE FROM cameras WHERE id = ?", (camera_id,))
+            else:
+                # Hidden from the active camera list while retaining its
+                # metadata and archive history for playback and export.
+                cur = db.execute(
+                    "UPDATE cameras SET deleted = 1, enabled = 0, updated_at = ?"
+                    " WHERE id = ? AND deleted = 0",
+                    (int(time.time()), camera_id),
+                )
         return cur.rowcount > 0
 
     def _recording_pattern(self, camera_id):
