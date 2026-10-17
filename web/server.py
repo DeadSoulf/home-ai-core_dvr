@@ -322,7 +322,7 @@ def start_live(data):
 
 def camera_live_key(camera_id, stream_type=1):
     import re
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(camera_id or "")):
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", str(camera_id or "")):
         raise ValueError("Некорректный ID камеры")
     stream_type = str(stream_type)
     if stream_type not in {"0", "1", "2"}:
