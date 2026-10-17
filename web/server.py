@@ -557,14 +557,48 @@ class Handler(BaseHTTPRequestHandler):
         else:
             ctype = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
 
-        data = path.read_bytes()
-        self.send_response(200)
+        # Stream large MP4 archives with byte ranges. Never load an entire
+        # multi-gigabyte recording into RAM just to serve browser playback.
+        size = path.stat().st_size
+        first, last = 0, size - 1
+        partial = False
+        requested = self.headers.get("Range", "")
+        if requested:
+            match = __import__("re").fullmatch(r"bytes=(\\d*)-(\\d*)", requested.strip())
+            if not match or not any(match.groups()):
+                self.send_error(416)
+                return
+            a, b = match.groups()
+            if a:
+                first = int(a)
+                last = min(size - 1, int(b)) if b else size - 1
+            else:
+                first = max(0, size - int(b))
+                last = size - 1
+            if first > last or first >= size:
+                self.send_error(416)
+                return
+            partial = True
+        remaining = last - first + 1 if size > 0 else 0
+        self.send_response(206 if partial else 200)
         self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Length", str(remaining))
+        self.send_header("Accept-Ranges", "bytes")
+        if partial:
+            self.send_header("Content-Range", f"bytes {first}-{last}/{size}")
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
-        self.wfile.write(data)
+        with path.open("rb") as source:
+            source.seek(first)
+            while remaining > 0:
+                block = source.read(min(64 * 1024, remaining))
+                if not block:
+                    break
+                try:
+                    self.wfile.write(block)
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+                remaining -= len(block)
 
     def do_GET(self):
         parsed = urlparse(self.path)
