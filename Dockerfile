@@ -1,7 +1,7 @@
 FROM ubuntu:22.04
 
-LABEL org.opencontainers.image.title="h.a.c._nvr"
-LABEL org.opencontainers.image.version="1.1.1"
+LABEL org.opencontainers.image.title="HOME AI Core DVR"\nLABEL org.opencontainers.image.source="https://github.com/DeadSoulf/home-ai-core_dvr"
+LABEL org.opencontainers.image.version="1.1.2"
 
 ENV DEBIAN_FRONTEND=noninteractive
 
