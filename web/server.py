@@ -3,6 +3,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -564,7 +565,7 @@ class Handler(BaseHTTPRequestHandler):
         partial = False
         requested = self.headers.get("Range", "")
         if requested:
-            match = __import__("re").fullmatch(r"bytes=(\\d*)-(\\d*)", requested.strip())
+            match = re.fullmatch(r"bytes=(\d*)-(\d*)", requested.strip())
             if not match or not any(match.groups()):
                 self.send_error(416)
                 return
