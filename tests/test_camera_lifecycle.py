@@ -3,6 +3,7 @@ import sqlite3
 import tempfile
 import time
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from nvr.recorder import NVRRecorderManager
@@ -64,7 +65,7 @@ class TestCameraDeletion(unittest.TestCase):
         camera = self.camera()
         file = self.record(camera)
         self.nvr.stop()
-        with sqlite3.connect(self.root / "nvr.db") as db:
+        with closing(sqlite3.connect(self.root / "nvr.db")) as db, db:
             db.execute("CREATE TABLE cameras_old AS SELECT id,name,source_type,ip,port,username,password,channel,rtsp_url,enabled,created_at,updated_at FROM cameras")
             db.execute("DROP TABLE recordings")
             db.execute("DROP TABLE cameras")
