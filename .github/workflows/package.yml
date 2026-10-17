@@ -39,7 +39,7 @@ jobs:
           h.a.c._nvr package
           commit=$GITHUB_SHA
           container=h.a.c._nvr
-          image=home-ai-core_dvr:1.1.2
+          image=home-ai-core_dvr:1.1.3
           max_cameras=32
           EOF
           cd dist
