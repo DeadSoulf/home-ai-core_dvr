@@ -401,11 +401,11 @@ function updateLiveCount() {
 
 async function refreshSdkStatus() {
   try {
-    const [data, nvr, storage] = await Promise.all([
+    const [data, nvr] = await Promise.all([
       api("/api/status"),
-      api("/api/nvr/status"),
-      api("/api/nvr/storage")
+      api("/api/nvr/status")
     ]);
+    const storage = await api("/api/nvr/storage").catch(() => ({ok: false}));
     $("sdkDot").className = "status-dot ok";
     $("sdkStateText").textContent = "NVR работает";
     $("sdkSubText").textContent = nvr.active_recorders + " REC · " + formatSize(nvr.storage_bytes);
