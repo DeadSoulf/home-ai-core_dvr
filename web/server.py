@@ -15,6 +15,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nvr.recorder import NVRRecorderManager
+from nvr.storage import capacity_snapshot
 
 WEB_ROOT = Path("/app/web")
 OUTPUT_ROOT = Path(os.environ.get("NVR_DATA_ROOT", "/data"))
@@ -571,6 +572,13 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         clean = unquote(parsed.path)
         query = parse_qs(parsed.query)
+
+        if clean == "/api/nvr/storage":
+            try:
+                self.send_json(capacity_snapshot(OUTPUT_ROOT))
+            except OSError:
+                self.send_json({"ok": False, "error": "storage_unavailable"})
+            return
 
         if clean == "/api/nvr/status":
             self.send_json(NVR.status())
