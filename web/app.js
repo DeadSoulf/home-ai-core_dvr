@@ -401,9 +401,10 @@ function updateLiveCount() {
 
 async function refreshSdkStatus() {
   try {
-    const [data, nvr] = await Promise.all([
+    const [data, nvr, storage] = await Promise.all([
       api("/api/status"),
-      api("/api/nvr/status")
+      api("/api/nvr/status"),
+      api("/api/nvr/storage")
     ]);
     $("sdkDot").className = "status-dot ok";
     $("sdkStateText").textContent = "NVR работает";
@@ -414,6 +415,11 @@ async function refreshSdkStatus() {
       "Активных записей: " + nvr.active_recorders,
       "Файлов архива: " + nvr.recordings,
       "Архив занимает: " + formatSize(nvr.storage_bytes),
+      "Диск записей: " + (storage.ok ? storage.path : "недоступен"),
+      "Всего на диске: " + (storage.ok ? formatSize(storage.total_bytes) : "—"),
+      "Занято на диске: " + (storage.ok ? formatSize(storage.used_bytes) : "—"),
+      "Свободно для записи: " + (storage.ok ? formatSize(storage.available_bytes) : "—"),
+      "Использовано: " + (storage.ok ? storage.used_percent + "%" : "—"),
       "Хранение: " + nvr.retention_days + " дн. / " + nvr.max_storage_gb + " GB",
       "Сегмент: " + nvr.segment_seconds + " сек.",
       "",
