@@ -572,6 +572,25 @@ class Handler(BaseHTTPRequestHandler):
         clean = unquote(parsed.path)
         query = parse_qs(parsed.query)
 
+        if clean == "/api/nvr/storage":
+            try:
+                stats = os.statvfs(OUTPUT_ROOT)
+                total = stats.f_blocks * stats.f_frsize
+                free = stats.f_bfree * stats.f_frsize
+                available = stats.f_bavail * stats.f_frsize
+                self.send_json({
+                    "ok": True,
+                    "path": str(OUTPUT_ROOT),
+                    "total_bytes": total,
+                    "used_bytes": total - free,
+                    "free_bytes": free,
+                    "available_bytes": available,
+                    "used_percent": round((total - free) * 100 / total, 2) if total else 0,
+                })
+            except OSError:
+                self.send_json({"ok": False, "error": "storage_unavailable"})
+            return
+
         if clean == "/api/nvr/status":
             self.send_json(NVR.status())
             return
