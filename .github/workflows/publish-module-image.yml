@@ -15,6 +15,9 @@ on:
 
 jobs:
   publish:
+    # SDK 6.1.11.40 is opt-in/private. Never republish the mutable legacy
+    # 1.1.5 image on ordinary source edits; require explicit manual dispatch.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
