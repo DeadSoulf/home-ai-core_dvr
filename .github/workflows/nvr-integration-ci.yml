@@ -29,6 +29,33 @@ jobs:
           # the owner's private vendor archive is staged and tested.
       - name: Build NVR image
         run: docker build --platform linux/amd64 -t hac-nvr-test:1.1.5 .
+      - name: Verify real H264 MPEG-PS pipe recording and live HLS
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint /bin/sh hac-nvr-test:1.1.5 -ec '
+            mkdir -p /tmp/mp4 /tmp/hls
+            ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=320x180:rate=25 \
+              -t 4 -c:v libx264 -preset ultrafast -g 25 -f mpeg /tmp/camera.ps
+            cat /tmp/camera.ps | ffmpeg -hide_banner -loglevel error -fflags +genpts \
+              -i pipe:0 -map 0:v:0 -map 0:a:0? -c copy \
+              -f segment -segment_time 2 -reset_timestamps 1 -strftime 1 \
+              -segment_format mp4 /tmp/mp4/%Y%m%d_%H%M%S.mp4
+            recording=$(find /tmp/mp4 -name "*.mp4" -size +10000c -print -quit)
+            test -n "$recording"
+            ffprobe -v error -select_streams v:0 -show_entries stream=codec_name \
+              -of csv=p=0 "$recording" | grep -qx h264
+            cat /tmp/camera.ps | ffmpeg -hide_banner -loglevel error -fflags +genpts \
+              -flags low_delay -probesize 2000000 -analyzeduration 2000000 \
+              -i pipe:0 -map 0:v:0 -an -c:v libx264 -preset ultrafast \
+              -tune zerolatency -profile:v main -pix_fmt yuv420p \
+              -g 25 -keyint_min 25 -sc_threshold 0 -f hls \
+              -hls_time 1 -hls_list_size 4 \
+              -hls_flags delete_segments+append_list+omit_endlist+independent_segments \
+              /tmp/hls/index.m3u8
+            test -s /tmp/hls/index.m3u8
+            test "$(find /tmp/hls -name "*.ts" -size +10000c | wc -l)" -ge 2
+          '
       - name: Verify NVR status endpoint
         run: |
           set -euo pipefail
