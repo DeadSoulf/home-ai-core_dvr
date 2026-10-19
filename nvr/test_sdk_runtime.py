@@ -2,7 +2,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from nvr.sdk_runtime import _worker, decode_sdk_version, sdk_status
 
@@ -61,8 +61,9 @@ class SDKRuntimeTests(unittest.TestCase):
         class RejectLibrary:
             def __init__(self):
                 self.initialized = False
+                self.NET_DVR_SetSDKInitCfg = Mock(side_effect=self.reject)
 
-            def NET_DVR_SetSDKInitCfg(self, kind, location):
+            def reject(self, kind, location):
                 self.kind = kind
                 return 0
 
