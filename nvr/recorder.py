@@ -30,6 +30,7 @@ class NVRRecorderManager:
         self.segment_seconds = max(30, int(os.environ.get("NVR_SEGMENT_SECONDS", "300")))
         self.retention_days = max(0, int(os.environ.get("NVR_RETENTION_DAYS", "7")))
         self.max_storage_gb = max(0.0, float(os.environ.get("NVR_MAX_STORAGE_GB", "50")))
+        self.min_free_gb = max(0.0, float(os.environ.get("NVR_MIN_FREE_GB", "0")))
         self.max_cameras = max(1, min(32, int(os.environ.get("NVR_MAX_CAMERAS", "32"))))
         self.lock = threading.RLock()
         self.processes = {}
@@ -439,6 +440,19 @@ class NVRRecorderManager:
             db.execute("DELETE FROM recordings WHERE id = ?", (row["id"],))
         return True
 
+    def _eligible_to_prune(self, row, now):
+        """Never remove a recently modified (possibly open) recording."""
+        path = self.output_root / row["path"]
+        try:
+            if path.is_symlink():
+                return False
+            age = now - path.stat().st_mtime
+        except FileNotFoundError:
+            return True  # stale SQLite index
+        except OSError:
+            return False
+        return age >= max(120, self.segment_seconds * 2)
+
     def enforce_retention(self):
         self.scan_recordings()
         removed = 0
@@ -452,7 +466,7 @@ class NVRRecorderManager:
                     (cutoff,),
                 ).fetchall()
             for row in rows:
-                if self._delete_recording_row(row):
+                if self._eligible_to_prune(row, now) and self._delete_recording_row(row):
                     removed += 1
 
         if self.max_storage_gb > 0:
@@ -464,9 +478,36 @@ class NVRRecorderManager:
                 if total <= max_bytes:
                     break
                 size = int(row["size_bytes"] or 0)
-                if self._delete_recording_row(row):
+                if self._eligible_to_prune(row, now) and self._delete_recording_row(row):
                     total -= size
                     removed += 1
+
+        # Opt-in filesystem reserve, independent of arbitrary archive limits.
+        # Reclaim only indexed, old closed clips. No removal if statvfs fails.
+        if self.min_free_gb > 0:
+            reserve = int(self.min_free_gb * 1024 ** 3)
+            try:
+                fs = os.statvfs(self.recordings_root)
+                available = fs.f_bavail * fs.f_frsize
+            except OSError:
+                return removed
+            if available < reserve:
+                with self._connect() as db:
+                    rows = db.execute(
+                        "SELECT * FROM recordings ORDER BY started_at ASC"
+                    ).fetchall()
+                for row in rows:
+                    if available >= reserve:
+                        break
+                    if not self._eligible_to_prune(row, now):
+                        continue
+                    if self._delete_recording_row(row):
+                        removed += 1
+                        try:
+                            fs = os.statvfs(self.recordings_root)
+                            available = fs.f_bavail * fs.f_frsize
+                        except OSError:
+                            break
         return removed
 
     def storage_bytes(self):
@@ -495,6 +536,7 @@ class NVRRecorderManager:
             "segment_seconds": self.segment_seconds,
             "retention_days": self.retention_days,
             "max_storage_gb": self.max_storage_gb,
+            "min_free_gb": self.min_free_gb,
             "database": str(self.db_path),
         }
 
