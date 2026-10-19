@@ -18,12 +18,14 @@ if ! command -v python3 >/dev/null 2>&1 || ! command -v g++ >/dev/null 2>&1; the
     exit 2
 fi
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-case "$(realpath "$1")" in
+archive=$(realpath "$1")
+case "$archive" in
   "$root"/*) echo "Never place vendor SDK archives inside the Git repository" >&2; exit 2 ;;
 esac
+cd "$root"
 stage_root=$(mktemp -d)
 trap 'rm -rf "$stage_root"' EXIT HUP INT TERM
-python3 "$root/tools/stage_hcnetsdk.py" "$1" \
+python3 "$root/tools/stage_hcnetsdk.py" "$archive" \
   --output "$stage_root/vendor_sdk" \
   --sha256 2b8be43fd1cf0d4bd16d4a3b5860c214ee278fd851ea0c59ab0e0b4a9eceee29
 sh "$root/tools/verify_hcnetsdk_abi.sh" "$stage_root/vendor_sdk" "$stage_root/sdk-stream"
