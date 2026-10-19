@@ -35,6 +35,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV HOME=/tmp
 ENV TMPDIR=/tmp
 ENV NVR_SDK_PROFILE=hcnet611-local
+ENV NVR_SDK_REQUIRED_VERSION=6.1.11.40
 # Do not inherit the legacy 50 GiB / seven-day archive caps.
 # Only old completed segments are reclaimed if the disk runs below 20 GiB free.
 ENV NVR_MAX_STORAGE_GB=0
