@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nvr.recorder import NVRRecorderManager
 from nvr.storage import capacity_snapshot
-from nvr.sdk_runtime import sdk_status
+from nvr.sdk_runtime import sdk_status_async
 from nvr.validation import normalize_sdk_channel
 
 WEB_ROOT = Path("/app/web")
@@ -585,7 +585,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if clean == "/api/nvr/sdk":
-            self.send_json(sdk_status())
+            self.send_json(sdk_status_async())
             return
 
         if clean == "/api/nvr/status":
@@ -619,11 +619,11 @@ class Handler(BaseHTTPRequestHandler):
                 "ok": result["ok"],
                 "container": "hikvision-hcnetsdk",
                 "sdk": (
-                    "HCNetSDK " + sdk_status()["version"] + " Linux64"
-                    if sdk_status().get("version")
+                    "HCNetSDK " + sdk_status_async()["version"] + " Linux64"
+                    if sdk_status_async().get("version")
                     else "HCNetSDK: не удалось определить версию"
                 ),
-                "sdk_info": sdk_status(),
+                "sdk_info": sdk_status_async(),
                 "ffmpeg": (ff["stdout"].splitlines()[0] if ff["ok"] and ff["stdout"] else "недоступен"),
                 "details": result["stdout"] or result["stderr"],
                 "live": live_status(),
