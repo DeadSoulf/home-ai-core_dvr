@@ -59,6 +59,31 @@ class SDK611LocalBuildContract(unittest.TestCase):
         self.assertEqual(recorder.count('"-fflags", "+genpts"'), 1)
         self.assertEqual(web.count('"-fflags", "+genpts"'), 2)
 
+    def test_vendor_status_does_not_block_nvr_http_and_reports_capabilities(self):
+        server = (ROOT / "web/server.py").read_text(encoding="utf-8")
+        self.assertNotIn('run_cmd(["/usr/local/bin/sdk-smoke"]', server)
+        self.assertIn('sdk_info = sdk_status_async()', server)
+        self.assertIn('unsupported_sdk_post(SDK_PROFILE, clean)', server)
+        self.assertIn('sdk_features', server)
+        ui = (ROOT / "web/app.js").read_text(encoding="utf-8")
+        self.assertIn('applySDKCapabilities(data.sdk_features)', ui)
+        self.assertIn('min_free_gb', ui)
+
+    def test_hardware_validation_is_opt_in_and_cannot_touch_nvr_state(self):
+        script = (ROOT / "tools/test_sdk611_camera.sh").read_text(encoding="utf-8")
+        check = subprocess.run(["sh", "-n", str(ROOT / "tools/test_sdk611_camera.sh")],
+                               capture_output=True, text=True)
+        self.assertEqual(check.returncode, 0, check.stderr)
+        for required in ("--read-only", "--network host", "--cap-drop ALL",
+                         "--entrypoint /usr/local/bin/sdk-login-test",
+                         "--entrypoint /usr/local/bin/sdk-stream",
+                         "--env HCNET_PASSWORD", "timeout --signal",
+                         "ffprobe", "sample.mp4"):
+            self.assertIn(required, script)
+        for forbidden in ("docker push", "docker rm -f", "systemctl",
+                          "/var/lib/home-ai-modules", "NET_DVR_PTZ"):
+            self.assertNotIn(forbidden, script)
+
     def test_native_adapters_are_separately_version_guarded(self):
         stream = (ROOT / "native/sdk_stream_v40.cpp").read_text(encoding="utf-8")
         action = (ROOT / "native/sdk_action_v40.cpp").read_text(encoding="utf-8")
