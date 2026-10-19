@@ -259,7 +259,7 @@ class NVRRecorderManager:
                 )
                 ffmpeg_args = [
                     "ffmpeg", "-hide_banner", "-loglevel", "warning",
-                    "-fflags", "+genpts+nobuffer",
+                    "-fflags", "+genpts",
                     "-i", "pipe:0",
                     *self._ffmpeg_segment_args(pattern),
                 ]
