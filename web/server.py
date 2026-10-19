@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nvr.recorder import NVRRecorderManager
 from nvr.storage import capacity_snapshot
 from nvr.sdk_runtime import sdk_status
+from nvr.validation import normalize_sdk_channel
 
 WEB_ROOT = Path("/app/web")
 OUTPUT_ROOT = Path(os.environ.get("NVR_DATA_ROOT", "/data"))
@@ -61,6 +62,8 @@ def run_cmd(args, env=None, timeout=15):
         }
     except subprocess.TimeoutExpired:
         return {"ok": False, "code": -1, "stdout": "", "stderr": "TIMEOUT"}
+    except OSError:
+        return {"ok": False, "code": -2, "stdout": "", "stderr": "SDK_COMMAND_UNAVAILABLE"}
 
 
 def device_env(data):
@@ -68,7 +71,7 @@ def device_env(data):
     user = str(data.get("user", "")).strip()
     password = str(data.get("password", ""))
     port = str(data.get("port", "8000")).strip()
-    channel = str(data.get("channel", "")).strip()
+    channel = normalize_sdk_channel(data.get("channel"))
 
     if not ip or not user or not password:
         raise ValueError("Укажите IP, имя пользователя и пароль")
