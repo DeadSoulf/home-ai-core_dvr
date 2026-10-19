@@ -98,6 +98,29 @@ class SDKRuntimeTests(unittest.TestCase):
         self.assertEqual(result["version"], "6.1.11.40")
         self.assertEqual(result["openssl"], "3")
 
+    def test_timeout_is_retryable_in_same_process(self):
+        (self.root / "libhcnetsdk.so").write_bytes(b"ELF")
+        (self.root / "libcrypto.so.3").write_bytes(b"ELF")
+        success = subprocess.CompletedProcess(
+            [], 0, '{"ok":true,"version":"6.1.11.40"}'
+        )
+        with patch("nvr.sdk_runtime.subprocess.run", side_effect=[
+            subprocess.TimeoutExpired(["sdk-probe"], 10), success
+        ]) as run:
+            first = sdk_status(self.root)
+            second = sdk_status(self.root)
+            third = sdk_status(self.root)
+        self.assertFalse(first["ok"])
+        self.assertEqual(first["error"], "sdk_probe_unavailable")
+        self.assertTrue(second["ok"])
+        self.assertEqual(third, second)
+        self.assertEqual(run.call_count, 2, "only successful probe must be cached")
+
+    def test_real_hcnetsdk_probe_has_a_realistic_timeout(self):
+        from nvr.sdk_runtime import PROBE_TIMEOUT
+        self.assertGreaterEqual(PROBE_TIMEOUT, 10)
+        self.assertLess(PROBE_TIMEOUT, 12)
+
     def test_probe_timeout_does_not_block_server(self):
         (self.root / "libhcnetsdk.so").write_bytes(b"ELF")
         with patch("nvr.sdk_runtime.subprocess.run", side_effect=subprocess.TimeoutExpired(["probe"], 4)):
