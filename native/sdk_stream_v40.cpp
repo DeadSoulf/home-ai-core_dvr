@@ -65,11 +65,6 @@ void CALLBACK on_stream(LONG, DWORD kind, BYTE* buffer, DWORD length, void*) {
     last_data.store(time(nullptr));
 }
 int run(int argc, char** argv) {
-    const DWORD ver = NET_DVR_GetSDKBuildVersion();
-    if (ver != 0x06010b28) {
-        fprintf(stderr, "Incompatible HCNetSDK build: %08x (expected 06010b28)\n", ver);
-        return 78;
-    }
     const std::string executable(argv[0] ? argv[0] : "");
     const bool smoke = executable.find("sdk-smoke") != std::string::npos ||
                        (argc > 1 && std::string(argv[1]) == "--version");
@@ -82,6 +77,12 @@ int run(int argc, char** argv) {
     if (!NET_DVR_SetSDKInitCfg(NET_SDK_INIT_CFG_SDK_PATH, &cfg) || !NET_DVR_Init()) {
         fprintf(stderr, "HCNetSDK initialization failed: %u\n", NET_DVR_GetLastError());
         return 70;
+    }
+    const DWORD ver = NET_DVR_GetSDKBuildVersion();
+    if (ver != 0x06010b28) {
+        fprintf(stderr, "Incompatible HCNetSDK build: %08x (expected 06010b28)\n", ver);
+        NET_DVR_Cleanup();
+        return 78;
     }
     NET_DVR_SetConnectTime(3000, 2);
     NET_DVR_SetReconnect(10000, true);

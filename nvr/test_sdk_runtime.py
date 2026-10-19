@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from nvr.sdk_runtime import decode_sdk_version, sdk_status
+from nvr.sdk_runtime import _worker, decode_sdk_version, sdk_status
 
 
 class SDKRuntimeTests(unittest.TestCase):
@@ -19,6 +19,33 @@ class SDKRuntimeTests(unittest.TestCase):
         self.assertEqual(decode_sdk_version(0x06010930), "6.1.9.48")
         with self.assertRaises(ValueError):
             decode_sdk_version(-1)
+
+    def test_native_build_word_requires_initialization_and_cleanup(self):
+        (self.root / "libhcnetsdk.so").write_bytes(b"ELF")
+
+        class FakeFunction:
+            restype = None
+            argtypes = None
+
+            def __init__(self, callback):
+                self.callback = callback
+
+            def __call__(self):
+                return self.callback()
+
+        state = {"initialized": False, "cleaned": False}
+
+        class FakeLibrary:
+            NET_DVR_Init = FakeFunction(lambda: state.__setitem__("initialized", True) or 1)
+            NET_DVR_GetSDKBuildVersion = FakeFunction(
+                lambda: 0x06010B28 if state["initialized"] else 0
+            )
+            NET_DVR_Cleanup = FakeFunction(lambda: state.__setitem__("cleaned", True) or 1)
+
+        with patch("nvr.sdk_runtime.ctypes.CDLL", return_value=FakeLibrary()):
+            result = _worker(self.root)
+        self.assertEqual(result["version"], "6.1.11.40")
+        self.assertTrue(state["cleaned"])
 
     def test_missing_library_is_reported_without_loading_native_code(self):
         self.assertEqual(sdk_status(self.root)["error"], "sdk_library_missing")

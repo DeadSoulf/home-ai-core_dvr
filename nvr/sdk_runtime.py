@@ -23,10 +23,25 @@ def _worker(root):
     if not lib.is_file():
         raise OSError("missing libhcnetsdk.so")
     handle = ctypes.CDLL(str(lib), mode=ctypes.RTLD_LOCAL)
+    init = handle.NET_DVR_Init
+    init.restype = ctypes.c_int
+    init.argtypes = []
+    cleanup = handle.NET_DVR_Cleanup
+    cleanup.restype = ctypes.c_int
+    cleanup.argtypes = []
     fn = handle.NET_DVR_GetSDKBuildVersion
     fn.restype = ctypes.c_uint32
     fn.argtypes = []
-    return {"ok": True, "version": decode_sdk_version(fn())}
+    # HCNetSDK 6.1.11 returns 0 from GetSDKBuildVersion until Init.
+    if init() != 1:
+        raise OSError("HCNetSDK initialization failed")
+    try:
+        version_word = fn()
+        if version_word == 0:
+            raise ValueError("SDK returned no build version")
+        return {"ok": True, "version": decode_sdk_version(version_word)}
+    finally:
+        cleanup()
 
 
 @functools.lru_cache(maxsize=4)
