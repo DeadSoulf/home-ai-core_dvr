@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     permissions:
-      contents: read
+      contents: write # read temporary private draft release asset by ID
       packages: write
     steps:
       - name: Check out audited NVR source
