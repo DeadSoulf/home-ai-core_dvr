@@ -100,6 +100,18 @@ class SDKRuntimeTests(unittest.TestCase):
         self.assertEqual(result["version"], "6.1.11.40")
         self.assertEqual(result["openssl"], "3")
 
+    def test_sdk_image_rejects_unexpected_library_version(self):
+        (self.root / "libhcnetsdk.so").write_bytes(b"ELF")
+        bad_sdk = subprocess.CompletedProcess(
+            [], 0, '{"ok":true,"version":"6.1.9.48"}'
+        )
+        with patch.dict("os.environ", {"NVR_SDK_REQUIRED_VERSION": "6.1.11.40"}):
+            with patch("nvr.sdk_runtime.subprocess.run", return_value=bad_sdk):
+                status = sdk_status(self.root)
+        self.assertFalse(status["ok"])
+        self.assertEqual(status["error"], "sdk_version_mismatch")
+        self.assertEqual(status["detected_version"], "6.1.9.48")
+
     def test_timeout_is_retryable_in_same_process(self):
         (self.root / "libhcnetsdk.so").write_bytes(b"ELF")
         (self.root / "libcrypto.so.3").write_bytes(b"ELF")
