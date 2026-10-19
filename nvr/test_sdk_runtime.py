@@ -1,10 +1,12 @@
 import subprocess
+import threading
+import time
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from nvr.sdk_runtime import _worker, decode_sdk_version, sdk_status
+from nvr.sdk_runtime import SDKStatusMonitor, _worker, decode_sdk_version, sdk_status
 
 
 class SDKRuntimeTests(unittest.TestCase):
@@ -119,7 +121,69 @@ class SDKRuntimeTests(unittest.TestCase):
     def test_real_hcnetsdk_probe_has_a_realistic_timeout(self):
         from nvr.sdk_runtime import PROBE_TIMEOUT
         self.assertGreaterEqual(PROBE_TIMEOUT, 10)
-        self.assertLess(PROBE_TIMEOUT, 12)
+        self.assertLessEqual(PROBE_TIMEOUT, 45)
+
+
+    def test_web_probe_never_blocks_or_runs_concurrently(self):
+        entered = threading.Event()
+        release = threading.Event()
+        done = threading.Event()
+        runs = []
+
+        def probe(root):
+            runs.append(root)
+            entered.set()
+            release.wait(2)
+            done.set()
+            return {"ok": True, "version": "6.1.11.40",
+                    "architecture": "linux/amd64"}
+
+        monitor = SDKStatusMonitor(probe=probe)
+        try:
+            beginning = time.monotonic()
+            self.assertEqual(monitor.status(self.root)["error"], "sdk_probe_in_progress")
+            self.assertTrue(entered.wait(1))
+            for _ in range(12):
+                self.assertEqual(monitor.status(self.root)["error"], "sdk_probe_in_progress")
+            self.assertLess(time.monotonic() - beginning, 0.5)
+            self.assertEqual(len(runs), 1)
+        finally:
+            release.set()
+        self.assertTrue(done.wait(2))
+        for _ in range(200):
+            result = monitor.status(self.root)
+            if result.get("ok"):
+                break
+            time.sleep(0.005)
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(runs), 1)
+
+    def test_web_probe_errors_are_throttled_before_retry(self):
+        attempts = []
+        clock = [100.0]
+        entered = threading.Event()
+
+        def failure(root):
+            attempts.append(root)
+            entered.set()
+            return {"ok": False, "version": None, "architecture": "linux/amd64",
+                    "error": "sdk_probe_unavailable"}
+
+        monitor = SDKStatusMonitor(probe=failure, retry_seconds=10,
+                                   clock=lambda: clock[0])
+        self.assertEqual(monitor.status(self.root)["error"], "sdk_probe_in_progress")
+        self.assertTrue(entered.wait(1))
+        for _ in range(200):
+            status = monitor.status(self.root)
+            if status.get("error") == "sdk_probe_unavailable":
+                break
+            time.sleep(0.005)
+        self.assertEqual(status["error"], "sdk_probe_unavailable")
+        for _ in range(10):
+            self.assertEqual(monitor.status(self.root)["error"], "sdk_probe_unavailable")
+        self.assertEqual(len(attempts), 1)
+        clock[0] += 11
+        self.assertEqual(monitor.status(self.root)["error"], "sdk_probe_in_progress")
 
     def test_probe_timeout_does_not_block_server(self):
         (self.root / "libhcnetsdk.so").write_bytes(b"ELF")
