@@ -30,13 +30,20 @@ class SDKRuntimeTests(unittest.TestCase):
             def __init__(self, callback):
                 self.callback = callback
 
-            def __call__(self):
-                return self.callback()
+            def __call__(self, *args):
+                return self.callback(*args)
 
-        state = {"initialized": False, "cleaned": False}
+        state = {"configured": False, "initialized": False, "cleaned": False}
+
+        def configure(kind, location):
+            if kind != 2 or str(self.root).encode() != location._obj.sPath:
+                return 0
+            state["configured"] = True
+            return 1
 
         class FakeLibrary:
-            NET_DVR_Init = FakeFunction(lambda: state.__setitem__("initialized", True) or 1)
+            NET_DVR_SetSDKInitCfg = FakeFunction(configure)
+            NET_DVR_Init = FakeFunction(lambda: state.__setitem__("initialized", True) or 1 if state["configured"] else 0)
             NET_DVR_GetSDKBuildVersion = FakeFunction(
                 lambda: 0x06010B28 if state["initialized"] else 0
             )
@@ -45,7 +52,30 @@ class SDKRuntimeTests(unittest.TestCase):
         with patch("nvr.sdk_runtime.ctypes.CDLL", return_value=FakeLibrary()):
             result = _worker(self.root)
         self.assertEqual(result["version"], "6.1.11.40")
+        self.assertTrue(state["configured"])
         self.assertTrue(state["cleaned"])
+
+    def test_missing_native_component_path_is_rejected_before_initialization(self):
+        (self.root / "libhcnetsdk.so").write_bytes(b"ELF")
+
+        class RejectLibrary:
+            def __init__(self):
+                self.initialized = False
+
+            def NET_DVR_SetSDKInitCfg(self, kind, location):
+                self.kind = kind
+                return 0
+
+            def NET_DVR_Init(self):
+                self.initialized = True
+                return 1
+
+        library = RejectLibrary()
+        with patch("nvr.sdk_runtime.ctypes.CDLL", return_value=library):
+            with self.assertRaisesRegex(OSError, "component directory"):
+                _worker(self.root)
+        self.assertFalse(library.initialized)
+        self.assertEqual(library.kind, 2)
 
     def test_missing_library_is_reported_without_loading_native_code(self):
         self.assertEqual(sdk_status(self.root)["error"], "sdk_library_missing")
