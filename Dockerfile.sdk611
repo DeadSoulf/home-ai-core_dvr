@@ -1,0 +1,61 @@
+# syntax=docker/dockerfile:1.7
+# Local, opt-in HCNetSDK 6.1.11.40 image.
+# Build with: docker buildx build --build-context vendor_sdk=/verified/stage ...
+# Vendor libraries are NEVER copied into Git or the standard NVR image.
+FROM --platform=linux/amd64 ubuntu:24.04 AS native-builder
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    g++ make libuuid1 libstdc++6 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=vendor_sdk /include/ /sdk/include/
+COPY --from=vendor_sdk /lib/ /opt/hikvision/lib/
+COPY native/sdk_stream_v40.cpp native/sdk_action_v40.cpp /build/
+RUN mkdir -p /out \
+    && g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread \
+       -I/sdk/include /build/sdk_stream_v40.cpp -L/opt/hikvision/lib \
+       -Wl,-rpath,/opt/hikvision/lib:/opt/hikvision/lib/HCNetSDKCom \
+       -lhcnetsdk -o /out/sdk-stream \
+    && g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread \
+       -I/sdk/include /build/sdk_action_v40.cpp -L/opt/hikvision/lib \
+       -Wl,-rpath,/opt/hikvision/lib:/opt/hikvision/lib/HCNetSDKCom \
+       -lhcnetsdk -o /out/sdk-action
+
+FROM --platform=linux/amd64 ubuntu:24.04
+LABEL org.opencontainers.image.title="HOME AI Core NVR (HCNetSDK 6.1.11.40, local opt-in)"
+LABEL org.opencontainers.image.source="https://github.com/DeadSoulf/home-ai-core_dvr"
+LABEL org.opencontainers.image.version="1.1.6-sdk611-local"
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates python3 ffmpeg libuuid1 libstdc++6 libgcc-s1 libasound2 \
+    && rm -rf /var/lib/apt/lists/*
+ENV HCNETSDK_PATH=/opt/hikvision/lib
+ENV LD_LIBRARY_PATH=/opt/hikvision/lib:/opt/hikvision/lib/HCNetSDKCom
+ENV NVR_DATA_ROOT=/data
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV HOME=/tmp
+ENV TMPDIR=/tmp
+ENV NVR_SDK_PROFILE=hcnet611-local
+
+# The entire vendor runtime must come from ONE verified SDK version.
+COPY --from=vendor_sdk /lib/ /opt/hikvision/lib/
+COPY --from=native-builder /out/sdk-stream /usr/local/bin/sdk-stream
+COPY --from=native-builder /out/sdk-action /usr/local/bin/sdk-action
+COPY tools/sdk611_unsupported.sh /usr/local/bin/sdk-extended
+COPY web/ /app/web/
+COPY nvr/ /app/nvr/
+COPY scripts/entrypoint.sh /entrypoint.sh
+RUN chmod 0755 /entrypoint.sh /usr/local/bin/sdk-stream \
+    /usr/local/bin/sdk-action /usr/local/bin/sdk-extended \
+    && ln -s sdk-stream /usr/local/bin/sdk-smoke \
+    && ln -s sdk-stream /usr/local/bin/sdk-login-test \
+    && ln -s sdk-extended /usr/local/bin/sdk-alarm-monitor \
+    && mkdir -p /data \
+    && /usr/local/bin/sdk-smoke
+
+WORKDIR /data
+EXPOSE 8090
+VOLUME ["/data"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/api/nvr/status',timeout=5).read()" || exit 1
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["python3", "/app/web/server.py"]
