@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nvr.recorder import NVRRecorderManager
 from nvr.storage import capacity_snapshot
 from nvr.sdk_runtime import sdk_status_async
+from nvr.sdk_features import capabilities, unsupported_sdk_post
 from nvr.validation import normalize_sdk_channel
 
 WEB_ROOT = Path("/app/web")
@@ -25,6 +26,7 @@ HLS_ROOT = OUTPUT_ROOT / "hls"
 ARCHIVE_ROOT = OUTPUT_ROOT / "archive"
 HOST = "0.0.0.0"
 PORT = 8090
+SDK_PROFILE = os.environ.get("NVR_SDK_PROFILE", "legacy").strip()
 
 for p in (OUTPUT_ROOT, HLS_ROOT, ARCHIVE_ROOT):
     p.mkdir(parents=True, exist_ok=True)
@@ -585,7 +587,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if clean == "/api/nvr/sdk":
-            self.send_json(sdk_status_async())
+            self.send_json({**sdk_status_async(), "features": capabilities(SDK_PROFILE)})
             return
 
         if clean == "/api/nvr/status":
@@ -613,21 +615,27 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if clean == "/api/status":
-            result = run_cmd(["/usr/local/bin/sdk-smoke"], timeout=10)
+            # NVR can serve RTSP independently of HCNetSDK. Never block Web
+            # requests on slow vendor Init/Cleanup or treat a pending SDK
+            # health probe as a whole-server outage.
+            sdk_info = sdk_status_async()
             ff = run_cmd(["ffmpeg", "-version"], timeout=5)
             self.send_json({
-                "ok": result["ok"],
+                "ok": True,
                 "container": "hikvision-hcnetsdk",
+                "sdk_ready": sdk_info.get("ok", False),
                 "sdk": (
-                    "HCNetSDK " + sdk_status_async()["version"] + " Linux64"
-                    if sdk_status_async().get("version")
-                    else "HCNetSDK: не удалось определить версию"
+                    "HCNetSDK " + sdk_info["version"] + " Linux64"
+                    if sdk_info.get("version")
+                    else "HCNetSDK: проверка запущена" if sdk_info.get("error") == "sdk_probe_in_progress"
+                    else "HCNetSDK: временно недоступен"
                 ),
-                "sdk_info": sdk_status_async(),
+                "sdk_info": sdk_info,
+                "sdk_features": capabilities(SDK_PROFILE),
                 "ffmpeg": (ff["stdout"].splitlines()[0] if ff["ok"] and ff["stdout"] else "недоступен"),
-                "details": result["stdout"] or result["stderr"],
+                "details": sdk_info.get("error", ""),
                 "live": live_status(),
-            }, 200 if result["ok"] else 500)
+            })
             return
 
         if clean == "/api/live/status":
@@ -636,7 +644,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if clean == "/api/events":
             state = alarm_state()
-            self.send_json({"ok": True, **state})
+            self.send_json({"ok": True, "supported": capabilities(SDK_PROFILE)["events"], **state})
             return
 
         if clean.startswith("/output/"):
@@ -666,6 +674,13 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             clean = urlparse(self.path).path
+            if unsupported_sdk_post(SDK_PROFILE, clean):
+                self.send_json({
+                    "ok": False,
+                    "code": "sdk_feature_unavailable",
+                    "error": "Функция пока не поддерживается HCNetSDK 6.1.11.40",
+                }, 501)
+                return
 
             if clean == "/api/nvr/cameras":
                 camera = NVR.save_camera(data)
