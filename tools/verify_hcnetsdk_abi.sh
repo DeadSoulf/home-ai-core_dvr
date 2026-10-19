@@ -17,3 +17,19 @@ g++ -std=c++17 -O2 -Wall -Wextra -pthread \
   -lhcnetsdk -o "$output"
 LD_LIBRARY_PATH="$sdk/lib:$sdk/lib/HCNetSDKCom" \
   HCNETSDK_PATH="$sdk/lib" "$output" --version
+
+# Recompile control operations with exactly the same vendor headers and libs.
+# Never reuse the old sdk-action binary linked against OpenSSL 1.1.
+g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread \
+  -I"$sdk/include" native/sdk_action_v40.cpp \
+  -L"$sdk/lib" -Wl,-rpath,"$sdk/lib" \
+  -lhcnetsdk -o "${output}-action"
+# A missing command must be rejected before attempting camera login.
+status=0
+LD_LIBRARY_PATH="$sdk/lib:$sdk/lib/HCNetSDKCom" \
+  HCNETSDK_PATH="$sdk/lib" "${output}-action" >/dev/null 2>&1 || status=$?
+if [ "$status" -ne 64 ]; then
+    echo "sdk-action must reject missing camera action arguments" >&2
+    exit 1
+fi
+echo "V40 stream and action adapters compiled with HCNetSDK 6.1.11.40 headers"
