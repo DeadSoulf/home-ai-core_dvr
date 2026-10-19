@@ -26,7 +26,7 @@ LABEL org.opencontainers.image.source="https://github.com/DeadSoulf/home-ai-core
 LABEL org.opencontainers.image.version="1.1.6-sdk611-local"
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates python3 ffmpeg libuuid1 libstdc++6 libgcc-s1 libasound2 \
+    ca-certificates python3 ffmpeg libuuid1 libstdc++6 libgcc-s1 libasound2t64 \
     && rm -rf /var/lib/apt/lists/*
 ENV HCNETSDK_PATH=/opt/hikvision/lib
 ENV LD_LIBRARY_PATH=/opt/hikvision/lib:/opt/hikvision/lib/HCNetSDKCom
