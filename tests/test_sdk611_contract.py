@@ -26,7 +26,16 @@ class SDK611LocalBuildContract(unittest.TestCase):
         self.assertIn("--build-context", script)
         self.assertIn("--sha256", script)
         self.assertIn("Dockerfile.sdk611", script)
-        for forbidden in ("docker push", "docker rm", "kubectl", "systemctl stop"):
+        # Only the disposable container ID created by this script may be removed.
+        self.assertIn('test_container=$(docker run -d --rm', script)
+        self.assertIn('docker rm -f "$test_container"', script)
+        for required in ("--network none", "--read-only", "--cap-drop ALL",
+                         "--security-opt no-new-privileges",
+                         "--mount \"type=bind,src=$test_data,dst=/data\"",
+                         '/api/nvr/sdk', '"6.1.11.40"'):
+            self.assertIn(required, script)
+        for forbidden in ("docker push", "docker rm home-ai-module", "kubectl",
+                          "systemctl stop", "/var/lib/home-ai-modules/nvr.module"):
             self.assertNotIn(forbidden, script)
         result = subprocess.run(["sh", "-n", str(ROOT / "tools/build_sdk611_local.sh")],
                                 capture_output=True, text=True, check=False)
