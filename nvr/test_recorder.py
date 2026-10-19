@@ -105,6 +105,24 @@ class RecorderDeletionTests(unittest.TestCase):
         self.assertEqual(self.manager.enforce_retention(), 0)
         self.assertTrue(old.exists())
 
+    def test_retention_rejects_symlinks_and_unsafe_database_paths(self):
+        camera_id = self.add_rtsp()
+        victim = Path(self.tmp.name) / "keep.mp4"
+        victim.write_bytes(b"must not be deleted")
+        folder = Path(self.tmp.name) / "recordings" / camera_id
+        folder.mkdir(parents=True, exist_ok=True)
+        symlink = folder / "outside.mp4"
+        symlink.symlink_to(victim)
+        self.assertFalse(self.manager._delete_recording_row(
+            {"id": 1, "path": "recordings/" + camera_id + "/outside.mp4"}))
+        self.assertFalse(self.manager._delete_recording_row(
+            {"id": 1, "path": "../keep.mp4"}))
+        self.assertFalse(self.manager._delete_recording_row(
+            {"id": 1, "path": "recordings/" + camera_id + "/../../keep.mp4"}))
+        self.assertTrue(victim.exists())
+        self.manager.scan_recordings(camera_id)
+        self.assertEqual(self.manager.list_recordings(), [])
+
     def test_existing_database_schema_is_migrated(self):
         self.manager._connect().close()
         with self.manager._connect() as db:
