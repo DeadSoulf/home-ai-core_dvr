@@ -365,7 +365,7 @@ class NVRRecorderManager:
         if camera_id:
             roots = [self.recordings_root / self._safe_camera_id(camera_id)]
         else:
-            roots = [p for p in self.recordings_root.iterdir() if p.is_dir()]
+            roots = [p for p in self.recordings_root.iterdir() if p.is_dir() and not p.is_symlink()]
 
         added = 0
         with self._connect() as db:
@@ -375,7 +375,11 @@ class NVRRecorderManager:
                 cid = root.name
                 if not self.get_camera(cid):
                     continue
+                if root.is_symlink():
+                    continue
                 for path in root.glob("*.mp4"):
+                    if path.is_symlink():
+                        continue
                     try:
                         st = path.stat()
                     except FileNotFoundError:
@@ -430,8 +434,26 @@ class NVRRecorderManager:
             items.append(item)
         return items
 
+    def _safe_recording_path(self, row):
+        """Never unlink outside /data/recordings or through a symlink."""
+        relative = Path(row["path"])
+        parts = relative.parts
+        if (relative.is_absolute() or len(parts) != 3 or
+                parts[0] != "recordings" or
+                parts[1] in {"", ".", ".."} or
+                parts[2] in {"", ".", ".."} or
+                not parts[2].endswith(".mp4")):
+            return None
+        directory = self.recordings_root / parts[1]
+        path = directory / parts[2]
+        if directory.is_symlink() or path.is_symlink():
+            return None
+        return path
+
     def _delete_recording_row(self, row):
-        path = self.output_root / row["path"]
+        path = self._safe_recording_path(row)
+        if path is None:
+            return False
         try:
             path.unlink(missing_ok=True)
         except Exception:
@@ -442,10 +464,10 @@ class NVRRecorderManager:
 
     def _eligible_to_prune(self, row, now):
         """Never remove a recently modified (possibly open) recording."""
-        path = self.output_root / row["path"]
+        path = self._safe_recording_path(row)
+        if path is None:
+            return False
         try:
-            if path.is_symlink():
-                return False
             age = now - path.stat().st_mtime
         except FileNotFoundError:
             return True  # stale SQLite index
