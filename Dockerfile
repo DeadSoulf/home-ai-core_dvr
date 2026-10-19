@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 LABEL org.opencontainers.image.title="HOME AI Core DVR"
 LABEL org.opencontainers.image.source="https://github.com/DeadSoulf/home-ai-core_dvr"
-LABEL org.opencontainers.image.version="1.1.4"
+LABEL org.opencontainers.image.version="1.1.5"
 
 ENV DEBIAN_FRONTEND=noninteractive
 

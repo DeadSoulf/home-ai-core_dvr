@@ -424,6 +424,7 @@ async function refreshSdkStatus() {
       "Сегмент: " + nvr.segment_seconds + " сек.",
       "",
       data.sdk,
+      "OpenSSL SDK: " + (data.sdk_info?.openssl || "не определён"),
       data.ffmpeg,
       "",
       data.details,
