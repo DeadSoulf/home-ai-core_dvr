@@ -35,6 +35,11 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV HOME=/tmp
 ENV TMPDIR=/tmp
 ENV NVR_SDK_PROFILE=hcnet611-local
+# Do not inherit the legacy 50 GiB / seven-day archive caps.
+# Only old completed segments are reclaimed if the disk runs below 20 GiB free.
+ENV NVR_MAX_STORAGE_GB=0
+ENV NVR_RETENTION_DAYS=0
+ENV NVR_MIN_FREE_GB=20
 
 # The entire vendor runtime must come from ONE verified SDK version.
 COPY --from=vendor_sdk /lib/ /opt/hikvision/lib/
