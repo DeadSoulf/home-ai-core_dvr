@@ -138,7 +138,7 @@ int run(int argc, char** argv) {
     preview.lChannel = channel;
     preview.dwStreamType = static_cast<DWORD>(stream_type);
     preview.dwLinkMode = 0;  // TCP, no multicast
-    preview.hPlayWnd = nullptr; // compressed stream only, no local rendering
+    preview.hPlayWnd = 0; // Linux HCNetSDK HWND is integer; zero disables rendering
     preview.bBlocked = 1;
     preview.dwDisplayBufNum = 1;
     preview.byReconnect = 1;
