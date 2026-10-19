@@ -11,6 +11,12 @@ SDK_PATH = Path(os.environ.get("HCNETSDK_PATH", "/opt/hikvision/lib"))
 PROBE_TIMEOUT = 4
 
 
+class _LocalSDKPath(ctypes.Structure):
+    # NET_DVR_LOCAL_SDK_PATH in HCNetSDK 6.1.11.40 incEn/HCNetSDK.h.
+    _fields_ = [("sPath", ctypes.c_char * 256),
+                ("byRes", ctypes.c_ubyte * 128)]
+
+
 def decode_sdk_version(build):
     build = int(build)
     if build < 0 or build > 0xFFFFFFFF:
@@ -23,6 +29,18 @@ def _worker(root):
     if not lib.is_file():
         raise OSError("missing libhcnetsdk.so")
     handle = ctypes.CDLL(str(lib), mode=ctypes.RTLD_LOCAL)
+    # Vendor guide §12.1.40 requires configuring the component directory
+    # before NET_DVR_Init(). This is separate from LD_LIBRARY_PATH.
+    encoded = os.fsencode(str(Path(root).resolve()))
+    if not encoded or len(encoded) >= 256:
+        raise ValueError("HCNetSDK component path is too long")
+    sdk_path = _LocalSDKPath()
+    sdk_path.sPath = encoded
+    configure = handle.NET_DVR_SetSDKInitCfg
+    configure.restype = ctypes.c_int
+    configure.argtypes = [ctypes.c_int, ctypes.c_void_p]
+    if configure(2, ctypes.byref(sdk_path)) != 1:
+        raise OSError("HCNetSDK component directory configuration failed")
     init = handle.NET_DVR_Init
     init.restype = ctypes.c_int
     init.argtypes = []
