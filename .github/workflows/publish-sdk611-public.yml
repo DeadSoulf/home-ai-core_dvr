@@ -1,0 +1,153 @@
+name: Publish public NVR 1.1.6 (licensed HCNetSDK)
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdk_asset_id:
+        description: "ID of a private draft release asset containing the verified HCNetSDK archive"
+        required: true
+        type: string
+      redistribution_authorized:
+        description: "I confirm that Hikvision permits public redistribution of this SDK build"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-nvr-1-1-6-sdk611
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: ${{ inputs.redistribution_authorized }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out audited NVR source
+        uses: actions/checkout@v4
+        with:
+          ref: f76b8c7aaf8b6ed925cd34c2f32dc5c44e96c6c2
+          persist-credentials: false
+
+      - name: Verify source revision and staging asset ID
+        shell: bash
+        env:
+          ASSET_ID: ${{ inputs.sdk_asset_id }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "f76b8c7aaf8b6ed925cd34c2f32dc5c44e96c6c2"
+          [[ "$ASSET_ID" =~ ^[0-9]{1,18}$ ]] || { echo "Invalid SDK staging asset ID"; exit 2; }
+
+      - name: Retrieve SDK privately and verify exact SHA-256
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_ID: ${{ inputs.sdk_asset_id }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/hikvision"
+          mkdir -p "$root"
+          curl --fail --silent --show-error --location             --retry 3 --retry-delay 2             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/octet-stream"             -H "X-GitHub-Api-Version: 2022-11-28"             "https://api.github.com/repos/DeadSoulf/home-ai-core_dvr/releases/assets/$ASSET_ID"             -o "$root/hcnet611.zip"
+          echo "2b8be43fd1cf0d4bd16d4a3b5860c214ee278fd851ea0c59ab0e0b4a9eceee29  $root/hcnet611.zip" | sha256sum -c -
+          python3 tools/stage_hcnetsdk.py "$root/hcnet611.zip"             --output "$root/stage"             --sha256 2b8be43fd1cf0d4bd16d4a3b5860c214ee278fd851ea0c59ab0e0b4a9eceee29
+          rm -f "$root/hcnet611.zip"
+          sh tools/verify_hcnetsdk_abi.sh "$root/stage" "$root/sdk-v40-test"
+
+      - name: Run NVR tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=. python3 -m unittest discover -s nvr -p 'test_*.py' -v
+          PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Build exact public candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx build --platform linux/amd64 --load             --build-context "vendor_sdk=$RUNNER_TEMP/hikvision/stage"             --label org.opencontainers.image.source=https://github.com/DeadSoulf/home-ai-core_dvr             --label org.opencontainers.image.revision=f76b8c7aaf8b6ed925cd34c2f32dc5c44e96c6c2             -f Dockerfile.sdk611 -t nvr-sdk611-verified:1.1.6 .
+          test "$(docker image inspect nvr-sdk611-verified:1.1.6 --format='{{index .Config.Labels "org.opencontainers.image.version"}}')" = "1.1.6-sdk611-local"
+
+      - name: Verify isolated runtime and HCNetSDK version
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/isolated-nvr"
+          sudo chown 1001:1001 "$RUNNER_TEMP/isolated-nvr"
+          docker run -d --name verified-nvr-sdk611             --network none --user 1001:1001 --read-only             --cap-drop ALL --security-opt no-new-privileges --pids-limit 256             --tmpfs /tmp:rw,noexec,nosuid,size=64m             --mount "type=bind,src=$RUNNER_TEMP/isolated-nvr,dst=/data"             nvr-sdk611-verified:1.1.6
+          trap 'docker logs --tail 30 verified-nvr-sdk611 || true; docker rm -f verified-nvr-sdk611 >/dev/null 2>&1 || true' EXIT
+          healthy=0
+          for attempt in $(seq 1 100); do
+            if docker exec verified-nvr-sdk611 python3 -c '
+          import json, urllib.request
+          u="http://127.0.0.1:8090"
+          status=json.load(urllib.request.urlopen(u+"/api/nvr/status",timeout=3))
+          sdk=json.load(urllib.request.urlopen(u+"/api/nvr/sdk",timeout=3))
+          fs=json.load(urllib.request.urlopen(u+"/api/nvr/storage",timeout=3))
+          assert status["ok"] and fs["ok"]
+          assert sdk["ok"] and sdk["version"] == "6.1.11.40"
+          ' >/dev/null 2>&1; then healthy=1; break; fi
+            sleep 2
+          done
+          test "$healthy" = 1 || { echo "Unhealthy SDK611 candidate"; exit 1; }
+
+      - name: Verify MP4 and HLS output
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --read-only             --cap-drop ALL --security-opt no-new-privileges             --tmpfs /tmp:rw,noexec,nosuid,size=128m             --entrypoint /bin/sh nvr-sdk611-verified:1.1.6 -ec '
+            mkdir -p /tmp/hls
+            ffmpeg -nostdin -hide_banner -loglevel error -y               -f lavfi -i testsrc2=size=320x180:rate=25 -t 4               -c:v libx264 -preset ultrafast -g 25 -f mpeg /tmp/camera.ps
+            cat /tmp/camera.ps | ffmpeg -nostdin -hide_banner -loglevel error -y               -fflags +genpts -i pipe:0 -map 0:v:0 -map 0:a:0?               -c copy -movflags +faststart /tmp/camera.mp4
+            test -s /tmp/camera.mp4
+            ffprobe -v error -select_streams v:0 -show_entries stream=codec_name               -of default=noprint_wrappers=1:nokey=1 /tmp/camera.mp4 | grep -qx h264
+            cat /tmp/camera.ps | ffmpeg -nostdin -hide_banner -loglevel error -y               -fflags +genpts -i pipe:0 -map 0:v:0 -an               -c:v libx264 -preset ultrafast -g 25 -keyint_min 25               -sc_threshold 0 -f hls -hls_time 1               -hls_flags independent_segments /tmp/hls/index.m3u8
+            test -s /tmp/hls/index.m3u8
+            test "$(find /tmp/hls -name "*.ts" -size +10000c | wc -l)" -ge 2
+          '
+
+      - name: Publish standard public GHCR NVR package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          image=ghcr.io/deadsoulf/home-ai-core_dvr
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          # Preserve all existing stable tags and refuse to replace an
+          # already-published version.
+          if docker manifest inspect "$image:1.1.6" >/dev/null 2>&1; then
+            echo "The public 1.1.6 tag already exists; refusing to overwrite."
+            exit 1
+          fi
+          docker tag nvr-sdk611-verified:1.1.6 "$image:1.1.6"
+          docker tag nvr-sdk611-verified:1.1.6 "$image:sha-f76b8c7aaf8b"
+          docker push "$image:1.1.6"
+          docker push "$image:sha-f76b8c7aaf8b"
+          digest="$(docker image inspect "$image:1.1.6" --format='{{index .RepoDigests 0}}')"
+          if [[ ! "$digest" =~ @sha256:[0-9a-f]{64}$ ]]; then
+            docker pull "$image:1.1.6" >/dev/null
+            digest="$(docker image inspect "$image:1.1.6" --format='{{index .RepoDigests 0}}')"
+          fi
+          [[ "$digest" =~ @sha256:[0-9a-f]{64}$ ]] || exit 1
+          printf "%s\n" "$digest" > "$RUNNER_TEMP/nvr-public-digest.txt"
+          echo "### Public NVR SDK611 image" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$digest\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save verified catalog digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: nvr-1-1-6-public-image-digest
+          path: ${{ runner.temp }}/nvr-public-digest.txt
+          retention-days: 90
+
+      - name: Remove staged SDK
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/hikvision" "$RUNNER_TEMP/sdk-v40-test" "$RUNNER_TEMP/sdk-v40-test-action"
