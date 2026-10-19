@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 SDK_PATH = Path(os.environ.get("HCNETSDK_PATH", "/opt/hikvision/lib"))
-PROBE_TIMEOUT = 4
+PROBE_TIMEOUT = 10
 
 
 class _LocalSDKPath(ctypes.Structure):
@@ -62,10 +62,37 @@ def _worker(root):
         cleanup()
 
 
+class _RetryableSDKProbeFailure(Exception):
+    """A failed probe must not be cached for the lifetime of the NVR process."""
+
+    def __init__(self, result):
+        super().__init__(result.get("error", "sdk_probe_failed"))
+        self.result = result
+
+
 @functools.lru_cache(maxsize=4)
+def _cached_sdk_status(root):
+    result = _probe_sdk_status(Path(root))
+    if not result.get("ok"):
+        raise _RetryableSDKProbeFailure(result)
+    return result
+
+
 def sdk_status(root=None):
-    """Isolate native crashes and timeouts away from NVR API and recordings."""
-    root = Path(root) if root else SDK_PATH
+    """Cache successful native probes but allow retry after a transient failure."""
+    try:
+        return _cached_sdk_status(str(Path(root) if root else SDK_PATH))
+    except _RetryableSDKProbeFailure as exc:
+        return exc.result
+
+
+# Preserve the cache-clear interface used by isolated regression tests.
+sdk_status.cache_clear = _cached_sdk_status.cache_clear
+
+
+def _probe_sdk_status(root):
+    """Keep vendor SDK Init/Cleanup in a bounded subprocess outside Web."""
+
     base = {"ok": False, "version": None, "architecture": "linux/amd64"}
     if not (root / "libhcnetsdk.so").is_file():
         return {**base, "error": "sdk_library_missing"}
