@@ -5,10 +5,13 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 SDK_PATH = Path(os.environ.get("HCNETSDK_PATH", "/opt/hikvision/lib"))
-PROBE_TIMEOUT = 10
+PROBE_TIMEOUT = 35
+PROBE_RETRY_SECONDS = 15
 
 
 class _LocalSDKPath(ctypes.Structure):
@@ -121,6 +124,73 @@ def _probe_sdk_status(root):
     except (ValueError, TypeError):
         pass
     return {**base, "error": "sdk_probe_invalid_response"}
+
+
+class SDKStatusMonitor:
+    """Nonblocking SDK status reader: one bounded subprocess at a time.
+
+    The actual native HCNetSDK Init/Cleanup is executed in a worker process,
+    never in the HTTP request thread. Failed probes have a retry cooldown.
+    """
+
+    def __init__(self, probe=None, retry_seconds=PROBE_RETRY_SECONDS, clock=None):
+        self._probe = probe or sdk_status
+        self._clock = clock or time.monotonic
+        self._retry_seconds = retry_seconds
+        self._lock = threading.Lock()
+        self._result = None
+        self._root = None
+        self._running = False
+        self._retry_at = 0.0
+
+    def status(self, root=None):
+        path = str(Path(root) if root is not None else SDK_PATH)
+        with self._lock:
+            if self._root != path:
+                self._root = path
+                self._result = None
+                self._retry_at = 0.0
+            result = self._result
+            if result and result.get("ok"):
+                return dict(result)
+            if self._running:
+                return {"ok": False, "version": None,
+                        "architecture": "linux/amd64",
+                        "error": "sdk_probe_in_progress"}
+            if result is not None and self._clock() < self._retry_at:
+                return dict(result)
+            self._running = True
+            thread = threading.Thread(
+                target=self._refresh, args=(path,), daemon=True,
+                name="hcnet-sdk-health",
+            )
+            thread.start()
+        return {"ok": False, "version": None,
+                "architecture": "linux/amd64",
+                "error": "sdk_probe_in_progress"}
+
+    def _refresh(self, root):
+        try:
+            result = self._probe(root)
+        except Exception:
+            result = {"ok": False, "version": None,
+                      "architecture": "linux/amd64",
+                      "error": "sdk_probe_failed"}
+        with self._lock:
+            if root == self._root:
+                self._result = dict(result)
+                self._retry_at = (
+                    self._clock() + self._retry_seconds if not result.get("ok") else 0.0
+                )
+            self._running = False
+
+
+_sdk_status_monitor = SDKStatusMonitor()
+
+
+def sdk_status_async(root=None):
+    """Return promptly even when the vendor library starts slowly."""
+    return _sdk_status_monitor.status(root)
 
 
 def main():
