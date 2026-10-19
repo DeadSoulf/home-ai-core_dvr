@@ -82,7 +82,7 @@ jobs:
           docker run -d --name verified-nvr-sdk611             --network none --user 1001:1001 --read-only             --cap-drop ALL --security-opt no-new-privileges --pids-limit 256             --tmpfs /tmp:rw,noexec,nosuid,size=64m             --mount "type=bind,src=$RUNNER_TEMP/isolated-nvr,dst=/data"             nvr-sdk611-verified:1.1.6
           trap 'docker logs --tail 30 verified-nvr-sdk611 || true; docker rm -f verified-nvr-sdk611 >/dev/null 2>&1 || true' EXIT
           healthy=0
-          for attempt in $(seq 1 100); do
+          for _ in $(seq 1 100); do
             if docker exec verified-nvr-sdk611 python3 -c '
           import json, urllib.request
           u="http://127.0.0.1:8090"
