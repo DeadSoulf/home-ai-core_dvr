@@ -117,9 +117,11 @@ int run(int argc, char** argv) {
         return 69;
     }
     if (login_test) {
-        printf("SDK login OK; analog_channels=%u start_channel=%u ip_channels=%u\n",
+        const unsigned digital = static_cast<unsigned>(device.struDeviceV30.byIPChanNum) +
+                                 (static_cast<unsigned>(device.struDeviceV30.byHighDChanNum) << 8);
+        printf("Analog channels: %u\nStart channel: %u\nDigital channels: %u\nStart digital channel: %u\n",
                device.struDeviceV30.byChanNum, device.struDeviceV30.byStartChan,
-               device.struDeviceV30.byIPChanNum);
+               digital, device.struDeviceV30.byStartDChan);
         NET_DVR_Logout(user);
         NET_DVR_Cleanup();
         return 0;
