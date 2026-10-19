@@ -47,6 +47,9 @@ class SDK611LocalBuildContract(unittest.TestCase):
             self.assertIn("0x06010b28", source)
             self.assertIn("static_assert(sizeof(NET_DVR_USER_LOGIN_INFO) == 416", source)
         self.assertIn("Start digital channel:", stream)
+        # Linux SDK defines HWND as an integer; nullptr fails compilation.
+        self.assertIn("preview.hPlayWnd = 0;", stream)
+        self.assertNotIn("preview.hPlayWnd = nullptr;", stream)
         for operation in ("NET_DVR_CaptureJPEGPicture", "NET_DVR_PTZControlWithSpeed_Other",
                           "NET_DVR_PTZPreset_Other"):
             self.assertIn(operation, action)
