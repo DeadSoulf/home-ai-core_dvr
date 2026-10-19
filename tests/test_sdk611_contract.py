@@ -17,6 +17,8 @@ class SDK611LocalBuildContract(unittest.TestCase):
         self.assertIn("COPY --from=native-builder /out/sdk-action", dockerfile)
         self.assertIn("COPY --from=native-builder /out/sdk-stream", dockerfile)
         self.assertIn("sdk611_unsupported.sh", dockerfile)
+        for setting in ("NVR_MAX_STORAGE_GB=0", "NVR_RETENTION_DAYS=0", "NVR_MIN_FREE_GB=20"):
+            self.assertIn(setting, dockerfile)
 
     def test_private_builder_verifies_exact_archive_and_never_publishes(self):
         script = (ROOT / "tools/build_sdk611_local.sh").read_text(encoding="utf-8")
