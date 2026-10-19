@@ -40,7 +40,7 @@ chmod 0777 "$temp/data"
 # No service ports exposed. Outgoing LAN connection only.
 # Pass secret by name, never as a literal CLI value.
 echo "Checking HCNetSDK login and camera channel inventory..."
-docker run --rm --platform linux/amd64 --network host --user 1001:1001 \
+timeout --signal=TERM --kill-after=8 90 docker run --rm --platform linux/amd64 --network host --user 1001:1001 \
     --read-only --cap-drop ALL --security-opt no-new-privileges \
     --tmpfs /tmp:rw,noexec,nosuid,size=64m \
     --mount "type=bind,src=$temp/data,dst=/data" \
@@ -48,9 +48,10 @@ docker run --rm --platform linux/amd64 --network host --user 1001:1001 \
     --env HCNET_PORT --env HCNET_CHANNEL \
     --entrypoint /usr/local/bin/sdk-login-test "$image"
 
-echo "Capturing a $duration second read-only video sample..."
+echo "Capturing a read-only video sample (requested $duration seconds plus SDK startup allowance)..."
+capture_budget=$((duration + 45))
 code=0
-timeout --signal=INT --kill-after=8 "$duration" \
+timeout --signal=INT --kill-after=8 "$capture_budget" \
     docker run --rm --platform linux/amd64 --network host \
         --user 1001:1001 --read-only --cap-drop ALL \
         --security-opt no-new-privileges \
@@ -85,4 +86,4 @@ if [ ! -s "$temp/sample.mp4" ]; then
 fi
 echo "HCNetSDK login, stream, and video remux: PASS ($codec)"
 echo "No PTZ commands were sent; the camera's pan/tilt position was not changed."
-echo "Captured test data has been kept only in the disposable temporary directory."
+echo "Test footage existed only in a disposable directory and is erased on script exit."
