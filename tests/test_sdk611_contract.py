@@ -38,6 +38,16 @@ class SDK611LocalBuildContract(unittest.TestCase):
         self.assertIn("needs a separately validated native adapter", result.stderr)
         self.assertEqual(result.stdout, "")
 
+    def test_ffmpeg_pipe_paths_preserve_h264_frames(self):
+        # In FFmpeg, +genpts+nobuffer can discard packets when the HCNetSDK
+        # MPEG-PS stream arrives through pipe:0; +genpts preserves the stream.
+        recorder = (ROOT / "nvr/recorder.py").read_text(encoding="utf-8")
+        web = (ROOT / "web/server.py").read_text(encoding="utf-8")
+        for code in (recorder, web):
+            self.assertNotIn("+genpts+nobuffer", code)
+        self.assertEqual(recorder.count('"-fflags", "+genpts"'), 1)
+        self.assertEqual(web.count('"-fflags", "+genpts"'), 2)
+
     def test_native_adapters_are_separately_version_guarded(self):
         stream = (ROOT / "native/sdk_stream_v40.cpp").read_text(encoding="utf-8")
         action = (ROOT / "native/sdk_action_v40.cpp").read_text(encoding="utf-8")
