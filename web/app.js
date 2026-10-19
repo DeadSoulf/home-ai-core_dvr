@@ -22,6 +22,7 @@ const state = {
   events: [],
   eventActive: false,
   nvrCameras: [],
+  sdkFeatures: null,
   busy: false
 };
 
@@ -399,6 +400,27 @@ function updateLiveCount() {
 }
 
 
+function applySDKCapabilities(features) {
+  if (!features || typeof features !== "object") return;
+  state.sdkFeatures = features;
+  const controls = {
+    device_status: ["refreshDeviceState", "deviceStatusBtn"],
+    network_usage: ["networkUsageBtn"],
+    events: ["toggleEventMonitor", "eventsStart", "alarmTest"],
+    ability: ["abilityBtn"],
+    remote_archive: ["archiveSearchBtn"]
+  };
+  Object.entries(controls).forEach(([feature, ids]) => {
+    if (features[feature] !== false) return;
+    ids.forEach((id) => {
+      const control = $(id);
+      if (!control) return;
+      control.disabled = true;
+      control.title = "Функция пока не поддерживается HCNetSDK 6.1.11.40";
+    });
+  });
+}
+
 async function refreshSdkStatus() {
   try {
     const [data, nvr] = await Promise.all([
@@ -406,6 +428,7 @@ async function refreshSdkStatus() {
       api("/api/nvr/status")
     ]);
     const storage = await api("/api/nvr/storage").catch(() => ({ok: false}));
+    applySDKCapabilities(data.sdk_features);
     $("sdkDot").className = "status-dot ok";
     $("sdkStateText").textContent = "NVR работает";
     $("sdkSubText").textContent = nvr.active_recorders + " REC · " + formatSize(nvr.storage_bytes);
@@ -420,7 +443,9 @@ async function refreshSdkStatus() {
       "Занято на диске: " + (storage.ok ? formatSize(storage.used_bytes) : "—"),
       "Свободно для записи: " + (storage.ok ? formatSize(storage.available_bytes) : "—"),
       "Использовано: " + (storage.ok ? storage.used_percent + "%" : "—"),
-      "Хранение: " + nvr.retention_days + " дн. / " + nvr.max_storage_gb + " GB",
+      "Хранение: " + (nvr.retention_days ? nvr.retention_days + " дн." : "без ограничения по сроку") +
+        " / " + (nvr.max_storage_gb ? nvr.max_storage_gb + " GiB" : "без фиксированного лимита"),
+      "Резерв свободного места: " + (nvr.min_free_gb || 0) + " GiB",
       "Сегмент: " + nvr.segment_seconds + " сек.",
       "",
       data.sdk,
@@ -1039,9 +1064,10 @@ setupArchiveDefaults();
 renderCameraList();
 fillChannelSelects();
 renderEventState();
-refreshSdkStatus();
+refreshSdkStatus().then(() => {
+  if (!state.sdkFeatures || state.sdkFeatures.ability !== false) loadAbility();
+});
 loadNvrCameras();
-loadAbility();
 pollEvents();
 
 setInterval(() => {
