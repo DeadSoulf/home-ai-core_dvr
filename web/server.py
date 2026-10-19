@@ -256,7 +256,7 @@ def start_live(data):
     playlist = target / "index.m3u8"
     ffmpeg_cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "warning",
-        "-fflags", "+genpts+nobuffer",
+        "-fflags", "+genpts",
         "-flags", "low_delay",
         "-probesize", "2000000",
         "-analyzeduration", "2000000",
@@ -346,7 +346,7 @@ def start_saved_camera_live(camera_id):
     try:
         command = [
             "ffmpeg", "-hide_banner", "-loglevel", "warning",
-            "-fflags", "+genpts+nobuffer",
+            "-fflags", "+genpts",
         ]
         if camera["source_type"] == "hikvision":
             env = {
