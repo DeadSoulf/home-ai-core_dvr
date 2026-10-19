@@ -117,7 +117,14 @@ def _probe_sdk_status(root):
     try:
         result = json.loads(process.stdout)
         if result.get("ok") is True and isinstance(result.get("version"), str):
-            return {**base, "ok": True, "version": result["version"],
+            version = result["version"]
+            required = os.environ.get("NVR_SDK_REQUIRED_VERSION", "").strip()
+            if required and version != required:
+                # An accidentally mounted legacy library must never appear
+                # healthy inside a 6.1.11.40 V40-ABI container.
+                return {**base, "error": "sdk_version_mismatch",
+                        "detected_version": version}
+            return {**base, "ok": True, "version": version,
                     "openssl": ("3" if (root / "libcrypto.so.3").exists() else
                                 "1.1" if (root / "libcrypto.so.1.1").exists() else
                                 "unknown")}
